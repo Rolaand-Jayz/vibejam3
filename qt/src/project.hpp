@@ -307,6 +307,110 @@ struct EditorialBlueprint {
     }
 };
 
+struct PreviewSampleSection {
+    QString title;
+    QString kind;
+    QString summary;
+    QString body;
+
+    [[nodiscard]] QJsonObject toJson() const
+    {
+        return QJsonObject {
+            { QStringLiteral("title"), title },
+            { QStringLiteral("kind"), kind },
+            { QStringLiteral("summary"), summary },
+            { QStringLiteral("body"), body },
+        };
+    }
+
+    [[nodiscard]] static PreviewSampleSection fromJson(const QJsonObject &object)
+    {
+        return PreviewSampleSection {
+            .title = object.value(QStringLiteral("title")).toString(),
+            .kind = object.value(QStringLiteral("kind")).toString(),
+            .summary = object.value(QStringLiteral("summary")).toString(),
+            .body = object.value(QStringLiteral("body")).toString(),
+        };
+    }
+};
+
+struct PreviewPackage {
+    QString id;
+    QString projectId;
+    int blueprintVersion = 1;
+    int version = 1;
+    QVector<PreviewSampleSection> sampleSections;
+    QString reviewNotes;
+    QString approvalState;
+    QString generatedAt;
+    QString updatedAt;
+
+    [[nodiscard]] QString summaryLine() const
+    {
+        return QStringLiteral("v%1 • blueprint v%2 • %3 sample section%4")
+            .arg(version)
+            .arg(blueprintVersion)
+            .arg(sampleSections.size())
+            .arg(sampleSections.size() == 1 ? QString() : QStringLiteral("s"));
+    }
+
+    [[nodiscard]] QString reviewSummary() const
+    {
+        return reviewNotes.trimmed().isEmpty() ? QStringLiteral("No review notes recorded yet.") : reviewNotes.trimmed();
+    }
+
+    [[nodiscard]] QString sampleTitleSummary() const
+    {
+        QStringList titles;
+        titles.reserve(sampleSections.size());
+        for (const PreviewSampleSection &section : sampleSections) {
+            titles.push_back(section.title.trimmed());
+        }
+
+        return titles.isEmpty() ? QStringLiteral("No preview sections") : titles.join(QStringLiteral(" • "));
+    }
+
+    [[nodiscard]] QJsonObject toJson() const
+    {
+        QJsonArray sampleSectionArray;
+        for (const PreviewSampleSection &section : sampleSections) {
+            sampleSectionArray.push_back(section.toJson());
+        }
+
+        return QJsonObject {
+            { QStringLiteral("id"), id },
+            { QStringLiteral("projectId"), projectId },
+            { QStringLiteral("blueprintVersion"), blueprintVersion },
+            { QStringLiteral("version"), version },
+            { QStringLiteral("sampleSections"), sampleSectionArray },
+            { QStringLiteral("reviewNotes"), reviewNotes },
+            { QStringLiteral("approvalState"), approvalState },
+            { QStringLiteral("generatedAt"), generatedAt },
+            { QStringLiteral("updatedAt"), updatedAt },
+        };
+    }
+
+    [[nodiscard]] static PreviewPackage fromJson(const QJsonObject &object)
+    {
+        PreviewPackage preview;
+        preview.id = object.value(QStringLiteral("id")).toString();
+        preview.projectId = object.value(QStringLiteral("projectId")).toString();
+        preview.blueprintVersion = object.value(QStringLiteral("blueprintVersion")).toInt(1);
+        preview.version = object.value(QStringLiteral("version")).toInt(1);
+
+        const QJsonArray sampleSectionArray = object.value(QStringLiteral("sampleSections")).toArray();
+        for (const QJsonValue &value : sampleSectionArray) {
+            preview.sampleSections.push_back(PreviewSampleSection::fromJson(value.toObject()));
+        }
+
+        preview.reviewNotes = object.value(QStringLiteral("reviewNotes")).toString();
+        preview.approvalState = object.value(QStringLiteral("approvalState")).toString(QStringLiteral("requires-review"));
+        preview.generatedAt = object.value(QStringLiteral("generatedAt")).toString();
+        preview.updatedAt = object.value(QStringLiteral("updatedAt")).toString(preview.generatedAt);
+        return preview;
+    }
+};
+
 struct ValidationReport {
     QString id;
     QString projectId;

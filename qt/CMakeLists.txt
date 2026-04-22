@@ -21,6 +21,8 @@ qt_add_executable(my_plaithrough
     src/new_project_dialog.cpp
     src/blueprint_dialog.hpp
     src/blueprint_dialog.cpp
+    src/preview_review_dialog.hpp
+    src/preview_review_dialog.cpp
     src/main_window.hpp
     src/main_window.cpp
 )

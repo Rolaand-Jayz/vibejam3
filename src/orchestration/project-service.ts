@@ -1,5 +1,13 @@
-import type { BuildJob, EditorialBlueprint, ProjectManifest, ValidationReport } from '../domain/index.js';
+import type {
+  BuildJob,
+  EditorialBlueprint,
+  PreviewApprovalStateValue,
+  PreviewPackage,
+  ProjectManifest,
+  ValidationReport,
+} from '../domain/index.js';
 import type { ProjectStorage } from '../storage/index.js';
+import { buildPreviewPackageInput } from './preview-package-factory.js';
 import { createIntakeValidationArtifacts } from '../validation/intake-validation.js';
 
 export type ProjectResult<T> =
@@ -93,6 +101,10 @@ export class ProjectService {
     return this.storage.listBlueprints(projectId);
   }
 
+  listPreviewPackages(projectId: string): PreviewPackage[] {
+    return this.storage.listPreviewPackages(projectId);
+  }
+
   listValidationReports(projectId: string): ValidationReport[] {
     return this.storage.listValidationReports(projectId);
   }
@@ -150,6 +162,78 @@ export class ProjectService {
       return { ok: true, data: blueprint };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error creating editorial blueprint';
+      return { ok: false, error: message };
+    }
+  }
+
+  generatePreview(projectId: string): ProjectResult<PreviewPackage> {
+    const project = this.storage.getProject(projectId);
+    if (!project) {
+      return { ok: false, error: `Project not found: ${projectId}` };
+    }
+
+    const latestBlueprint = this.storage.listBlueprints(projectId)[0] ?? null;
+    if (!latestBlueprint) {
+      return { ok: false, error: 'Draft an editorial blueprint before generating a preview.' };
+    }
+
+    try {
+      const latestPreview = this.storage.listPreviewPackages(projectId)[0] ?? null;
+      const preview = this.storage.createPreview(
+        buildPreviewPackageInput(
+          project,
+          latestBlueprint,
+          latestPreview ? latestPreview.version + 1 : 1,
+        ),
+      );
+
+      this.storage.updateProject(projectId, { projectState: 'preview-ready' });
+      return { ok: true, data: preview };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error generating preview package';
+      return { ok: false, error: message };
+    }
+  }
+
+  reviewPreview(
+    previewId: string,
+    input: {
+      approvalState: PreviewApprovalStateValue;
+      reviewNotes?: string;
+    },
+  ): ProjectResult<PreviewPackage> {
+    const preview = this.storage.getPreview(previewId);
+    if (!preview) {
+      return { ok: false, error: `Preview not found: ${previewId}` };
+    }
+
+    const reviewNotes = input.reviewNotes?.trim() ?? '';
+    if (input.approvalState === 'changes-requested' && !reviewNotes) {
+      return { ok: false, error: 'Explain what needs to change before requesting a revision.' };
+    }
+
+    const project = this.storage.getProject(preview.projectId);
+    if (!project) {
+      return { ok: false, error: `Project not found: ${preview.projectId}` };
+    }
+
+    try {
+      const updatedPreview = this.storage.updatePreview(previewId, {
+        approvalState: input.approvalState,
+        reviewNotes,
+      });
+
+      if (!updatedPreview) {
+        return { ok: false, error: `Preview not found: ${previewId}` };
+      }
+
+      this.storage.updateProject(preview.projectId, {
+        projectState: input.approvalState === 'changes-requested' ? 'revision-requested' : 'preview-ready',
+      });
+
+      return { ok: true, data: updatedPreview };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error reviewing preview package';
       return { ok: false, error: message };
     }
   }

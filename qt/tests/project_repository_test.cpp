@@ -20,6 +20,9 @@ private slots:
     void intake_validation_history_survives_reopen();
     void blueprint_creation_persists_and_advances_state();
     void blueprint_versions_are_sorted_newest_first();
+    void preview_generation_requires_a_blueprint();
+    void preview_generation_persists_and_advances_state();
+    void preview_review_decisions_persist_and_regeneration_versions();
 };
 
 void ProjectRepositoryTest::create_persists_intake_state_across_reopen()
@@ -354,6 +357,161 @@ void ProjectRepositoryTest::blueprint_versions_are_sorted_newest_first()
     QCOMPARE(blueprints.front().version, 2);
     QCOMPARE(blueprints.back().version, 1);
     QCOMPARE(blueprints.front().chapterPlans.size(), 2);
+}
+
+void ProjectRepositoryTest::preview_generation_requires_a_blueprint()
+{
+    QTemporaryDir tempDir;
+    QVERIFY2(tempDir.isValid(), "temporary directory should be available");
+
+    ProjectRepository repository(tempDir.path());
+    ProjectDraft draft {
+        .gameTitle = QStringLiteral("Final Fantasy VI"),
+        .platform = QStringLiteral("SNES"),
+        .guideIntent = QStringLiteral("balanced route"),
+        .playerGoal = QStringLiteral("finish the story"),
+        .runStyle = QStringLiteral("casual"),
+        .spoilerPolicy = QStringLiteral("minimal"),
+        .depthPreference = QStringLiteral("standard"),
+        .sharedThemeCss = QStringLiteral(),
+    };
+
+    Project created;
+    QString errorMessage;
+    QVERIFY2(repository.create(draft, &created, &errorMessage), qPrintable(errorMessage));
+
+    PreviewPackage createdPreview;
+    QVERIFY2(!repository.createPreview(created.id, &createdPreview, &errorMessage), "preview generation should fail without a blueprint");
+    QVERIFY2(errorMessage.contains(QStringLiteral("blueprint"), Qt::CaseInsensitive), qPrintable(errorMessage));
+}
+
+void ProjectRepositoryTest::preview_generation_persists_and_advances_state()
+{
+    QTemporaryDir tempDir;
+    QVERIFY2(tempDir.isValid(), "temporary directory should be available");
+
+    ProjectRepository repository(tempDir.path());
+    ProjectDraft draft {
+        .gameTitle = QStringLiteral("Chrono Trigger"),
+        .platform = QStringLiteral("SNES"),
+        .guideIntent = QStringLiteral("boss order and hidden loot route"),
+        .playerGoal = QStringLiteral("see every ending"),
+        .runStyle = QStringLiteral("casual"),
+        .spoilerPolicy = QStringLiteral("minimal"),
+        .depthPreference = QStringLiteral("standard"),
+        .sharedThemeCss = QStringLiteral(".guide-theme-surface { --accent: #d2a25a; }"),
+    };
+
+    Project created;
+    QString errorMessage;
+    QVERIFY2(repository.create(draft, &created, &errorMessage), qPrintable(errorMessage));
+
+    BlueprintDraft blueprintDraft {
+        .chapterPlans = {
+            BlueprintChapterPlan { QStringLiteral("Opening route"), QStringLiteral("Establish the first route locks and early warnings.") },
+            BlueprintChapterPlan { QStringLiteral("Core progression"), QStringLiteral("Lay out the main route, power spikes, and detours.") },
+            BlueprintChapterPlan { QStringLiteral("Cleanup"), QStringLiteral("Track missables and ending requirements.") },
+        },
+        .terminologyRules = QStringLiteral("Use official boss, location, and item names."),
+        .styleBible = QStringLiteral("Keep the tone calm, tactical, and spoiler-aware."),
+        .crossReferencePlan = QStringLiteral("Tie route warnings back to optional detours and reference notes."),
+        .checklistPlan = QStringLiteral("End each chapter with a short irreversible-check list."),
+        .visualPackIntent = QStringLiteral("Warm field-manual cards with restrained accents."),
+        .spoilerGuardrails = QStringLiteral("Keep plot reveals out of headings and summaries."),
+    };
+
+    EditorialBlueprint blueprint;
+    QVERIFY2(repository.createBlueprint(created.id, blueprintDraft, &blueprint, &errorMessage), qPrintable(errorMessage));
+
+    PreviewPackage createdPreview;
+    QVERIFY2(repository.createPreview(created.id, &createdPreview, &errorMessage), qPrintable(errorMessage));
+    QCOMPARE(createdPreview.version, 1);
+    QCOMPARE(createdPreview.blueprintVersion, 1);
+    QCOMPARE(createdPreview.approvalState, QStringLiteral("requires-review"));
+    QVERIFY2(createdPreview.sampleSections.size() >= 4, "preview should include multiple representative sample sections");
+
+    ProjectRepository reopened(tempDir.path());
+    const QVector<Project> projects = reopened.all(&errorMessage);
+    QVERIFY2(errorMessage.isEmpty(), qPrintable(errorMessage));
+    QCOMPARE(projects.size(), 1);
+    QCOMPARE(projects.front().projectState, QStringLiteral("preview-ready"));
+
+    const QVector<PreviewPackage> previews = reopened.listPreviews(created.id, &errorMessage);
+    QVERIFY2(errorMessage.isEmpty(), qPrintable(errorMessage));
+    QCOMPARE(previews.size(), 1);
+    QCOMPARE(previews.front().approvalState, QStringLiteral("requires-review"));
+    QVERIFY2(QFile::exists(tempDir.path() + QStringLiteral("/projects/") + created.id + QStringLiteral("/previews/") + createdPreview.id + QStringLiteral(".json")), "preview record should be written to the project workspace");
+}
+
+void ProjectRepositoryTest::preview_review_decisions_persist_and_regeneration_versions()
+{
+    QTemporaryDir tempDir;
+    QVERIFY2(tempDir.isValid(), "temporary directory should be available");
+
+    ProjectRepository repository(tempDir.path());
+    ProjectDraft draft {
+        .gameTitle = QStringLiteral("Vagrant Story"),
+        .platform = QStringLiteral("PS1"),
+        .guideIntent = QStringLiteral("boss strategy notebook"),
+        .playerGoal = QStringLiteral("finish the story"),
+        .runStyle = QStringLiteral("casual"),
+        .spoilerPolicy = QStringLiteral("minimal"),
+        .depthPreference = QStringLiteral("standard"),
+        .sharedThemeCss = QStringLiteral(),
+    };
+
+    Project created;
+    QString errorMessage;
+    QVERIFY2(repository.create(draft, &created, &errorMessage), qPrintable(errorMessage));
+
+    BlueprintDraft blueprintDraft {
+        .chapterPlans = {
+            BlueprintChapterPlan { QStringLiteral("Workshop opening"), QStringLiteral("Cover first systems and weapon basics.") },
+            BlueprintChapterPlan { QStringLiteral("Catacombs loop"), QStringLiteral("Explain optional detours and risk/reward.") },
+        },
+        .terminologyRules = QStringLiteral("Prefer official boss names and weapon class labels."),
+        .styleBible = QStringLiteral("Use short tactical paragraphs with one caution callout per chapter."),
+        .crossReferencePlan = QStringLiteral("Tie material notes back to weapon families and break arts."),
+        .checklistPlan = QStringLiteral("Track workshop exits, key pickups, and affinity prep."),
+        .visualPackIntent = QStringLiteral("Dense reference cards with low ornament and warmer highlights."),
+        .spoilerGuardrails = QStringLiteral("Keep late dungeon names out of early summaries."),
+    };
+
+    EditorialBlueprint blueprint;
+    QVERIFY2(repository.createBlueprint(created.id, blueprintDraft, &blueprint, &errorMessage), qPrintable(errorMessage));
+
+    PreviewPackage firstPreview;
+    QVERIFY2(repository.createPreview(created.id, &firstPreview, &errorMessage), qPrintable(errorMessage));
+
+    PreviewPackage changesRequestedPreview;
+    QVERIFY2(repository.reviewPreview(firstPreview.id, QStringLiteral("changes-requested"), QStringLiteral("The route sample needs denser checkpoint language before full build."), &changesRequestedPreview, &errorMessage), qPrintable(errorMessage));
+    QCOMPARE(changesRequestedPreview.approvalState, QStringLiteral("changes-requested"));
+    QVERIFY2(changesRequestedPreview.reviewNotes.contains(QStringLiteral("checkpoint language"), Qt::CaseInsensitive), "review notes should be preserved");
+
+    const QVector<Project> revisionRequestedProjects = repository.all(&errorMessage);
+    QVERIFY2(errorMessage.isEmpty(), qPrintable(errorMessage));
+    QCOMPARE(revisionRequestedProjects.front().projectState, QStringLiteral("revision-requested"));
+
+    PreviewPackage secondPreview;
+    QVERIFY2(repository.createPreview(created.id, &secondPreview, &errorMessage), qPrintable(errorMessage));
+    QCOMPARE(secondPreview.version, 2);
+
+    PreviewPackage approvedPreview;
+    QVERIFY2(repository.reviewPreview(secondPreview.id, QStringLiteral("approved"), QStringLiteral("This preview is representative enough to move forward later."), &approvedPreview, &errorMessage), qPrintable(errorMessage));
+    QCOMPARE(approvedPreview.approvalState, QStringLiteral("approved"));
+
+    ProjectRepository reopened(tempDir.path());
+    const QVector<Project> projects = reopened.all(&errorMessage);
+    QVERIFY2(errorMessage.isEmpty(), qPrintable(errorMessage));
+    QCOMPARE(projects.front().projectState, QStringLiteral("preview-ready"));
+
+    const QVector<PreviewPackage> previews = reopened.listPreviews(created.id, &errorMessage);
+    QVERIFY2(errorMessage.isEmpty(), qPrintable(errorMessage));
+    QCOMPARE(previews.size(), 2);
+    QCOMPARE(previews.front().version, 2);
+    QCOMPARE(previews.front().approvalState, QStringLiteral("approved"));
+    QCOMPARE(previews.back().version, 1);
+    QCOMPARE(previews.back().approvalState, QStringLiteral("changes-requested"));
 }
 
 QTEST_MAIN(ProjectRepositoryTest)

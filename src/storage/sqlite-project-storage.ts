@@ -2,10 +2,11 @@ import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { BuildJob, EditorialBlueprint, ProjectManifest, ValidationReport } from '../domain/index.js';
+import type { BuildJob, EditorialBlueprint, PreviewPackage, ProjectManifest, ValidationReport } from '../domain/index.js';
 import {
   BuildJobSchema,
   EditorialBlueprintSchema,
+  PreviewPackageSchema,
   ProjectManifestSchema,
   ValidationReportSchema,
 } from '../domain/index.js';
@@ -52,6 +53,18 @@ interface EditorialBlueprintRow {
   visual_pack_intent: string;
   spoiler_guardrails: string;
   created_at: string;
+  updated_at: string;
+}
+
+interface PreviewPackageRow {
+  id: string;
+  project_id: string;
+  blueprint_version: number;
+  version: number;
+  sample_sections: string;
+  review_notes: string;
+  approval_state: string;
+  generated_at: string;
   updated_at: string;
 }
 
@@ -133,6 +146,19 @@ export class SqliteProjectStorage implements ProjectStorage {
         visual_pack_intent TEXT NOT NULL,
         spoiler_guardrails TEXT NOT NULL,
         created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (project_id) REFERENCES project_manifests(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS preview_packages (
+        id TEXT PRIMARY KEY NOT NULL,
+        project_id TEXT NOT NULL,
+        blueprint_version INTEGER NOT NULL,
+        version INTEGER NOT NULL,
+        sample_sections TEXT NOT NULL,
+        review_notes TEXT NOT NULL,
+        approval_state TEXT NOT NULL,
+        generated_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         FOREIGN KEY (project_id) REFERENCES project_manifests(id) ON DELETE CASCADE
       );
@@ -316,6 +342,106 @@ export class SqliteProjectStorage implements ProjectStorage {
       visualPackIntent: row.visual_pack_intent,
       spoilerGuardrails: row.spoiler_guardrails,
       createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  createPreview(input: Omit<PreviewPackage, 'id' | 'generatedAt' | 'updatedAt'>): PreviewPackage {
+    const now = new Date().toISOString();
+    const preview = PreviewPackageSchema.parse({
+      ...input,
+      id: randomUUID(),
+      generatedAt: now,
+      updatedAt: now,
+    });
+
+    this.db.prepare(`
+      INSERT INTO preview_packages (
+        id, project_id, blueprint_version, version, sample_sections,
+        review_notes, approval_state, generated_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      preview.id,
+      preview.projectId,
+      preview.blueprintVersion,
+      preview.version,
+      JSON.stringify(preview.sampleSections),
+      preview.reviewNotes,
+      preview.approvalState,
+      preview.generatedAt,
+      preview.updatedAt,
+    );
+
+    return preview;
+  }
+
+  getPreview(id: string): PreviewPackage | null {
+    const row = this.db.prepare(`
+      SELECT * FROM preview_packages WHERE id = ?
+    `).get(id) as PreviewPackageRow | undefined;
+
+    if (!row) {
+      return null;
+    }
+
+    return PreviewPackageSchema.parse({
+      id: row.id,
+      projectId: row.project_id,
+      blueprintVersion: row.blueprint_version,
+      version: row.version,
+      sampleSections: JSON.parse(row.sample_sections) as PreviewPackage['sampleSections'],
+      reviewNotes: row.review_notes,
+      approvalState: row.approval_state,
+      generatedAt: row.generated_at,
+      updatedAt: row.updated_at,
+    });
+  }
+
+  updatePreview(id: string, patch: Partial<PreviewPackage>): PreviewPackage | null {
+    const existing = this.getPreview(id);
+    if (!existing) {
+      return null;
+    }
+
+    const updated = PreviewPackageSchema.parse({
+      ...existing,
+      ...patch,
+      id: existing.id,
+      projectId: existing.projectId,
+      generatedAt: existing.generatedAt,
+      updatedAt: patch.updatedAt ?? new Date().toISOString(),
+    });
+
+    this.db.prepare(`
+      UPDATE preview_packages SET
+        review_notes = ?,
+        approval_state = ?,
+        updated_at = ?
+      WHERE id = ?
+    `).run(
+      updated.reviewNotes,
+      updated.approvalState,
+      updated.updatedAt,
+      updated.id,
+    );
+
+    return updated;
+  }
+
+  listPreviewPackages(projectId: string): PreviewPackage[] {
+    const rows = this.db.prepare(`
+      SELECT * FROM preview_packages WHERE project_id = ? ORDER BY version DESC, updated_at DESC
+    `).all(projectId) as PreviewPackageRow[];
+
+    return rows.map((row) => PreviewPackageSchema.parse({
+      id: row.id,
+      projectId: row.project_id,
+      blueprintVersion: row.blueprint_version,
+      version: row.version,
+      sampleSections: JSON.parse(row.sample_sections) as PreviewPackage['sampleSections'],
+      reviewNotes: row.review_notes,
+      approvalState: row.approval_state,
+      generatedAt: row.generated_at,
       updatedAt: row.updated_at,
     }));
   }

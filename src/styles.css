@@ -323,7 +323,9 @@ code {
 
 .status-blocked,
 .status-validation-failed,
-.status-failed {
+.status-failed,
+.status-changes-requested,
+.status-revision-requested {
   background: var(--danger-weak);
   color: var(--danger);
 }
@@ -333,6 +335,11 @@ code {
 .status-freeze-pending {
   background: var(--warning-weak);
   color: var(--warning);
+}
+
+.status-approved {
+  background: var(--success-weak);
+  color: var(--success);
 }
 
 .status-queued,
@@ -449,7 +456,8 @@ select option {
 
 .theme-preview-card,
 .css-guide,
-.blueprint-summary {
+.blueprint-summary,
+.preview-summary {
   padding: 18px;
   border-radius: 18px;
   border: 1px solid var(--field-border);
@@ -483,6 +491,11 @@ select option {
 }
 
 .blueprint-summary {
+  display: grid;
+  gap: 16px;
+}
+
+.preview-summary {
   display: grid;
   gap: 16px;
 }
@@ -526,6 +539,72 @@ select option {
   border-radius: 16px;
   border: 1px solid rgba(79, 88, 99, 0.42);
   background: rgba(20, 24, 28, 0.65);
+}
+
+.preview-meta-row {
+  margin-top: -6px;
+}
+
+.preview-warning-note {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--warning-weak);
+  border: 1px solid rgba(239, 195, 108, 0.28);
+  color: var(--warning);
+}
+
+.preview-section-list {
+  display: grid;
+  gap: 12px;
+}
+
+.preview-section-card {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid var(--field-border);
+  background: rgba(20, 24, 28, 0.88);
+}
+
+.preview-section-summary,
+.preview-section-body {
+  margin: 0;
+}
+
+.preview-section-summary {
+  color: var(--text-secondary);
+}
+
+.preview-section-body {
+  color: var(--text-primary);
+  white-space: pre-wrap;
+}
+
+.preview-review-form {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(79, 88, 99, 0.42);
+  background: rgba(20, 24, 28, 0.65);
+}
+
+.preview-review-form label {
+  display: grid;
+  gap: 8px;
+}
+
+.preview-review-form span {
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+
+.preview-review-form textarea {
+  min-height: 150px;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 .css-guide ul {

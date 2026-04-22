@@ -158,6 +158,122 @@ ValidationReport buildIntakeValidationReport(const Project &project)
     report.summary = summarizeValidation(report);
     return report;
 }
+
+bool validatePreviewApprovalState(const QString &approvalState, const QString &reviewNotes, QString *errorMessage)
+{
+    static const QStringList allowedStates {
+        QStringLiteral("requires-review"),
+        QStringLiteral("approved"),
+        QStringLiteral("changes-requested"),
+    };
+
+    if (!allowedStates.contains(approvalState.trimmed())) {
+        setError(errorMessage, QStringLiteral("Preview approval state must be requires-review, approved, or changes-requested."));
+        return false;
+    }
+
+    if (approvalState.trimmed() == QStringLiteral("changes-requested") && reviewNotes.trimmed().isEmpty()) {
+        setError(errorMessage, QStringLiteral("Review notes are required when changes are requested."));
+        return false;
+    }
+
+    return true;
+}
+
+PreviewSampleSection buildFrontMatterPreviewSection(const Project &project, const EditorialBlueprint &blueprint)
+{
+    const QString platform = project.platform.trimmed().isEmpty() ? QStringLiteral("the chosen platform") : project.platform.trimmed();
+    const QString playerGoal = project.playerGoal.trimmed().isEmpty() ? QStringLiteral("the chosen run goal") : project.playerGoal.trimmed();
+
+    return PreviewSampleSection {
+        .title = QStringLiteral("Preview frame"),
+        .kind = QStringLiteral("front-matter"),
+        .summary = QStringLiteral("Tone, scope, and spoiler contract for the review slice."),
+        .body = QStringLiteral("%1 — %2\n\nPlatform focus: %3\nPlayer goal: %4\nRun style: %5\nDepth target: %6\n\nTone contract: %7\nSpoiler guardrails: %8")
+            .arg(project.displayTitle(),
+                 project.guideIntent,
+                 platform,
+                 playerGoal,
+                 project.runStyle,
+                 project.depthPreference,
+                 blueprint.styleBible,
+                 blueprint.spoilerGuardrails),
+    };
+}
+
+PreviewSampleSection buildWalkthroughPreviewSection(const Project &project, const EditorialBlueprint &blueprint)
+{
+    const BlueprintChapterPlan primaryChapter = blueprint.chapterPlans.front();
+    const BlueprintChapterPlan supportingChapter = blueprint.chapterPlans.size() > 1 ? blueprint.chapterPlans.at(1) : primaryChapter;
+    const QString playerGoal = project.playerGoal.trimmed().isEmpty() ? QStringLiteral("the chosen run goal") : project.playerGoal.trimmed();
+
+    return PreviewSampleSection {
+        .title = primaryChapter.title,
+        .kind = QStringLiteral("walkthrough"),
+        .summary = primaryChapter.purpose,
+        .body = QStringLiteral("Objective: %1\nRoute stance: Guide the player toward %2 with a %3 rhythm.\nSupporting chapter: %4 — %5\n\nCross-reference behavior: %6\nTerminology discipline: %7")
+            .arg(primaryChapter.purpose,
+                 playerGoal,
+                 project.runStyle,
+                 supportingChapter.title,
+                 supportingChapter.purpose,
+                 blueprint.crossReferencePlan,
+                 blueprint.terminologyRules),
+    };
+}
+
+PreviewSampleSection buildChecklistPreviewSection(const Project &project, const EditorialBlueprint &blueprint)
+{
+    const BlueprintChapterPlan firstChapter = blueprint.chapterPlans.front();
+    const BlueprintChapterPlan secondChapter = blueprint.chapterPlans.size() > 1 ? blueprint.chapterPlans.at(1) : firstChapter;
+    const QString playerGoal = project.playerGoal.trimmed().isEmpty() ? QStringLiteral("the chosen run goal") : project.playerGoal.trimmed();
+
+    return PreviewSampleSection {
+        .title = QStringLiteral("Checklist cadence sample"),
+        .kind = QStringLiteral("checklist"),
+        .summary = QStringLiteral("How route chapters end with explicit checks before progress continues."),
+        .body = QStringLiteral("Before leaving %1:\n- Confirm the route still serves %2.\n- Capture irreversible warnings in a short tactical list.\n- Call out optional detours that should link forward to %3.\n\nChecklist rule: %4")
+            .arg(firstChapter.title,
+                 playerGoal,
+                 secondChapter.title,
+                 blueprint.checklistPlan),
+    };
+}
+
+PreviewSampleSection buildReferencePreviewSection(const Project &project, const EditorialBlueprint &blueprint)
+{
+    return PreviewSampleSection {
+        .title = QStringLiteral("Reference formatting sample"),
+        .kind = QStringLiteral("reference"),
+        .summary = QStringLiteral("How terminology, visual notes, and cross-references should read in the guide."),
+        .body = QStringLiteral("Reference note for %1\nPreferred terminology: %2\nVisual direction: %3\nReference linkage: %4\nSpoiler policy in effect: %5")
+            .arg(project.displayTitle(),
+                 blueprint.terminologyRules,
+                 blueprint.visualPackIntent,
+                 blueprint.crossReferencePlan,
+                 project.spoilerPolicy),
+    };
+}
+
+PreviewPackage buildPreviewPackage(const Project &project, const EditorialBlueprint &blueprint, int version)
+{
+    PreviewPackage preview;
+    preview.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    preview.projectId = project.id;
+    preview.blueprintVersion = blueprint.version;
+    preview.version = version;
+    preview.sampleSections = {
+        buildFrontMatterPreviewSection(project, blueprint),
+        buildWalkthroughPreviewSection(project, blueprint),
+        buildChecklistPreviewSection(project, blueprint),
+        buildReferencePreviewSection(project, blueprint),
+    };
+    preview.reviewNotes.clear();
+    preview.approvalState = QStringLiteral("requires-review");
+    preview.generatedAt = currentIsoTimestamp();
+    preview.updatedAt = preview.generatedAt;
+    return preview;
+}
 }
 
 ProjectRepository::ProjectRepository(QString storageRoot)
@@ -216,6 +332,16 @@ QString ProjectRepository::blueprintsRootPath(const QString &projectId) const
 QString ProjectRepository::blueprintPath(const QString &projectId, const QString &blueprintId) const
 {
     return blueprintsRootPath(projectId) + QStringLiteral("/") + blueprintId + QStringLiteral(".json");
+}
+
+QString ProjectRepository::previewsRootPath(const QString &projectId) const
+{
+    return projectRootPath(projectId) + QStringLiteral("/previews");
+}
+
+QString ProjectRepository::previewPath(const QString &projectId, const QString &previewId) const
+{
+    return previewsRootPath(projectId) + QStringLiteral("/") + previewId + QStringLiteral(".json");
 }
 
 QString ProjectRepository::jobsRootPath(const QString &projectId) const
@@ -321,6 +447,29 @@ bool ProjectRepository::writeBlueprint(const EditorialBlueprint &blueprint, QStr
     file.write(QJsonDocument(blueprint.toJson()).toJson(QJsonDocument::Indented));
     if (!file.commit()) {
         setError(errorMessage, QStringLiteral("Could not commit blueprint record to %1.").arg(blueprintPath(blueprint.projectId, blueprint.id)));
+        return false;
+    }
+
+    return true;
+}
+
+bool ProjectRepository::writePreview(const PreviewPackage &preview, QString *errorMessage) const
+{
+    setError(errorMessage, {});
+
+    if (!ensureProjectLayout(preview.projectId, errorMessage)) {
+        return false;
+    }
+
+    QSaveFile file(previewPath(preview.projectId, preview.id));
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        setError(errorMessage, QStringLiteral("Could not open %1 for writing.").arg(previewPath(preview.projectId, preview.id)));
+        return false;
+    }
+
+    file.write(QJsonDocument(preview.toJson()).toJson(QJsonDocument::Indented));
+    if (!file.commit()) {
+        setError(errorMessage, QStringLiteral("Could not commit preview record to %1.").arg(previewPath(preview.projectId, preview.id)));
         return false;
     }
 
@@ -449,6 +598,38 @@ bool ProjectRepository::loadBlueprintFromFile(const QString &filePath, Editorial
     }
 
     *blueprint = loadedBlueprint;
+    return true;
+}
+
+bool ProjectRepository::loadPreviewFromFile(const QString &filePath, PreviewPackage *preview, QString *errorMessage) const
+{
+    setError(errorMessage, {});
+
+    if (preview == nullptr) {
+        setError(errorMessage, QStringLiteral("Internal error: missing preview output."));
+        return false;
+    }
+
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        setError(errorMessage, QStringLiteral("Could not open %1 for reading.").arg(filePath));
+        return false;
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        setError(errorMessage, QStringLiteral("Could not parse preview record %1.").arg(filePath));
+        return false;
+    }
+
+    const PreviewPackage loadedPreview = PreviewPackage::fromJson(document.object());
+    if (loadedPreview.id.trimmed().isEmpty() || loadedPreview.projectId.trimmed().isEmpty() || loadedPreview.sampleSections.isEmpty()) {
+        setError(errorMessage, QStringLiteral("Preview record %1 is corrupted: required fields are missing.").arg(filePath));
+        return false;
+    }
+
+    *preview = loadedPreview;
     return true;
 }
 
@@ -653,6 +834,42 @@ QVector<EditorialBlueprint> ProjectRepository::listBlueprints(const QString &pro
     return blueprints;
 }
 
+QVector<PreviewPackage> ProjectRepository::listPreviews(const QString &projectId, QString *errorMessage) const
+{
+    setError(errorMessage, {});
+
+    if (!migrateLegacyStoreIfNeeded(errorMessage)) {
+        return {};
+    }
+
+    QDir previewsDirectory(previewsRootPath(projectId));
+    if (!previewsDirectory.exists()) {
+        return {};
+    }
+
+    QVector<PreviewPackage> previews;
+    const QStringList files = previewsDirectory.entryList({QStringLiteral("*.json")}, QDir::Files, QDir::Name);
+    previews.reserve(files.size());
+
+    for (const QString &fileName : files) {
+        PreviewPackage preview;
+        if (!loadPreviewFromFile(previewsDirectory.filePath(fileName), &preview, errorMessage)) {
+            return {};
+        }
+        previews.push_back(preview);
+    }
+
+    std::sort(previews.begin(), previews.end(), [](const PreviewPackage &lhs, const PreviewPackage &rhs) {
+        if (lhs.version != rhs.version) {
+            return lhs.version > rhs.version;
+        }
+
+        return lhs.updatedAt > rhs.updatedAt;
+    });
+
+    return previews;
+}
+
 QVector<BuildJob> ProjectRepository::listJobs(const QString &projectId, QString *errorMessage) const
 {
     setError(errorMessage, {});
@@ -790,6 +1007,106 @@ bool ProjectRepository::createBlueprint(const QString &projectId, const Blueprin
     return true;
 }
 
+bool ProjectRepository::createPreview(const QString &projectId, PreviewPackage *createdPreview, QString *errorMessage) const
+{
+    setError(errorMessage, {});
+
+    if (createdPreview == nullptr) {
+        setError(errorMessage, QStringLiteral("Internal error: missing preview output."));
+        return false;
+    }
+
+    if (!migrateLegacyStoreIfNeeded(errorMessage)) {
+        return false;
+    }
+
+    Project project;
+    if (!loadProject(projectId, &project, errorMessage)) {
+        return false;
+    }
+
+    QString nestedError;
+    const QVector<EditorialBlueprint> blueprints = listBlueprints(projectId, &nestedError);
+    if (!nestedError.isEmpty()) {
+        setError(errorMessage, nestedError);
+        return false;
+    }
+    if (blueprints.isEmpty()) {
+        setError(errorMessage, QStringLiteral("Draft an editorial blueprint before generating a preview."));
+        return false;
+    }
+
+    const QVector<PreviewPackage> existingPreviews = listPreviews(projectId, &nestedError);
+    if (!nestedError.isEmpty()) {
+        setError(errorMessage, nestedError);
+        return false;
+    }
+
+    PreviewPackage preview = buildPreviewPackage(project, blueprints.front(), existingPreviews.isEmpty() ? 1 : existingPreviews.front().version + 1);
+    if (!writePreview(preview, errorMessage)) {
+        return false;
+    }
+
+    project.projectState = QStringLiteral("preview-ready");
+    if (!writeProject(project, errorMessage)) {
+        QFile::remove(previewPath(projectId, preview.id));
+        return false;
+    }
+
+    *createdPreview = preview;
+    return true;
+}
+
+bool ProjectRepository::reviewPreview(const QString &previewId, const QString &approvalState, const QString &reviewNotes, PreviewPackage *updatedPreview, QString *errorMessage) const
+{
+    setError(errorMessage, {});
+
+    if (updatedPreview == nullptr) {
+        setError(errorMessage, QStringLiteral("Internal error: missing preview output."));
+        return false;
+    }
+
+    if (!validatePreviewApprovalState(approvalState, reviewNotes, errorMessage)) {
+        return false;
+    }
+
+    if (!migrateLegacyStoreIfNeeded(errorMessage)) {
+        return false;
+    }
+
+    PreviewPackage preview;
+    if (!findPreviewById(previewId, &preview, errorMessage)) {
+        return false;
+    }
+
+    Project project;
+    if (!loadProject(preview.projectId, &project, errorMessage)) {
+        return false;
+    }
+
+    const PreviewPackage originalPreview = preview;
+    preview.approvalState = approvalState.trimmed();
+    preview.reviewNotes = reviewNotes.trimmed();
+    preview.updatedAt = currentIsoTimestamp();
+
+    if (!writePreview(preview, errorMessage)) {
+        return false;
+    }
+
+    project.projectState = approvalState.trimmed() == QStringLiteral("changes-requested")
+        ? QStringLiteral("revision-requested")
+        : QStringLiteral("preview-ready");
+
+    if (!writeProject(project, errorMessage)) {
+        QString rollbackError;
+        writePreview(originalPreview, &rollbackError);
+        return false;
+    }
+
+    *updatedPreview = preview;
+    return true;
+}
+
 bool ProjectRepository::update(const QString &projectId, const ProjectDraft &draft, Project *updatedProject, QString *errorMessage) const
 {
     setError(errorMessage, {});
@@ -872,4 +1189,37 @@ bool ProjectRepository::remove(const QString &projectId, QString *errorMessage) 
     }
 
     return true;
+}
+
+bool ProjectRepository::findPreviewById(const QString &previewId, PreviewPackage *preview, QString *errorMessage) const
+{
+    setError(errorMessage, {});
+
+    if (preview == nullptr) {
+        setError(errorMessage, QStringLiteral("Internal error: missing preview output."));
+        return false;
+    }
+
+    if (!migrateLegacyStoreIfNeeded(errorMessage)) {
+        return false;
+    }
+
+    QDir projectsDirectory(projectsRootPath());
+    if (!projectsDirectory.exists()) {
+        setError(errorMessage, QStringLiteral("Preview not found: %1").arg(previewId));
+        return false;
+    }
+
+    const QStringList projectIds = projectsDirectory.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+    for (const QString &projectId : projectIds) {
+        const QString filePath = previewPath(projectId, previewId);
+        if (!QFileInfo::exists(filePath)) {
+            continue;
+        }
+
+        return loadPreviewFromFile(filePath, preview, errorMessage);
+    }
+
+    setError(errorMessage, QStringLiteral("Preview not found: %1").arg(previewId));
+    return false;
 }

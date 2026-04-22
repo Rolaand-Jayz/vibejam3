@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { EditorialBlueprint, ProjectManifest } from './domain/index.js';
+import type { EditorialBlueprint, PreviewPackage, ProjectManifest } from './domain/index.js';
 import { ProjectService } from './orchestration/index.js';
 import { LocalStorageProjectStorage } from './storage/index.js';
 import {
@@ -100,6 +100,29 @@ function themeSummary(sharedThemeCss: string): string {
   return `Custom CSS defined (${lineCount} non-empty line${lineCount === 1 ? '' : 's'})`;
 }
 
+function describePreview(
+  preview: PreviewPackage | null,
+  latestBlueprint: EditorialBlueprint | null,
+): string {
+  if (!preview) {
+    return 'No preview package generated yet.';
+  }
+
+  if (latestBlueprint && preview.blueprintVersion !== latestBlueprint.version) {
+    return `Preview v${preview.version} targets blueprint v${preview.blueprintVersion}; generate a fresh preview for blueprint v${latestBlueprint.version}.`;
+  }
+
+  return `Preview v${preview.version} is ready for review against blueprint v${preview.blueprintVersion}.`;
+}
+
+function previewApprovalLabel(preview: PreviewPackage | null): string {
+  return preview ? preview.approvalState.toUpperCase() : 'NOT GENERATED';
+}
+
+function previewSectionKindLabel(section: PreviewPackage['sampleSections'][number]): string {
+  return section.kind.replace(/-/g, ' ');
+}
+
 function statusClass(status: string): string {
   return `status-${status.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
 }
@@ -111,6 +134,7 @@ export default function App() {
   const [formMode, setFormMode] = useState<FormMode>('create');
   const [formState, setFormState] = useState<ProjectFormState>(createDefaultFormState);
   const [blueprintFormState, setBlueprintFormState] = useState<BlueprintFormState | null>(null);
+  const [previewReviewNotes, setPreviewReviewNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -141,6 +165,8 @@ export default function App() {
 
   const selectedBlueprints = selectedProject ? service.listBlueprints(selectedProject.id) : [];
   const latestBlueprint = selectedBlueprints[0] ?? null;
+  const selectedPreviews = selectedProject ? service.listPreviewPackages(selectedProject.id) : [];
+  const latestPreview = selectedPreviews[0] ?? null;
   const selectedJobs = selectedProject ? service.listJobs(selectedProject.id) : [];
   const selectedReports = selectedProject ? service.listValidationReports(selectedProject.id) : [];
   const latestJob = selectedJobs[0] ?? null;
@@ -149,6 +175,13 @@ export default function App() {
   const validationSummary = latestReport?.summary ?? 'No intake validation has been recorded yet.';
   const lastChecked = latestJob?.endedAt ?? latestReport?.createdAt ?? 'Not yet';
   const activeThemeCss = centerMode === 'form' ? formState.sharedThemeCss : selectedProject?.sharedThemeCss ?? '';
+  const previewMatchesLatestBlueprint = latestPreview != null && latestBlueprint != null
+    ? latestPreview.blueprintVersion === latestBlueprint.version
+    : false;
+
+  useEffect(() => {
+    setPreviewReviewNotes(latestPreview?.reviewNotes ?? '');
+  }, [latestPreview?.id, latestPreview?.reviewNotes]);
 
   useEffect(() => {
     const styleId = 'my-plaithrough-project-theme';
@@ -352,6 +385,70 @@ export default function App() {
     setNotice(`Saved blueprint v${result.data.version} for ${selectedProject.gameTitle}.`);
   };
 
+  const handlePreviewAction = () => {
+    if (!selectedProject) {
+      setError('Select a project before generating or reviewing a preview.');
+      return;
+    }
+
+    if (!latestBlueprint) {
+      setError('Draft an editorial blueprint before generating a preview.');
+      return;
+    }
+
+    setError(null);
+    setNotice(null);
+
+    const shouldGeneratePreview = !latestPreview
+      || !previewMatchesLatestBlueprint
+      || latestPreview.approvalState === 'changes-requested'
+      || selectedProject.projectState === 'blueprint-ready';
+
+    if (!shouldGeneratePreview) {
+      setCenterMode('detail');
+      setNotice(`Preview v${latestPreview.version} already matches blueprint v${latestBlueprint.version}. Review it below.`);
+      return;
+    }
+
+    const result = service.generatePreview(selectedProject.id);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+
+    refreshProjects(selectedProject.id);
+    setCenterMode('detail');
+    setNotice(`Generated preview v${result.data.version} for ${selectedProject.gameTitle}.`);
+  };
+
+  const handlePreviewReview = (approvalState: 'approved' | 'changes-requested') => {
+    if (!selectedProject || !latestPreview) {
+      setError('Generate a preview before recording a review decision.');
+      return;
+    }
+
+    setError(null);
+    setNotice(null);
+
+    const result = service.reviewPreview(latestPreview.id, {
+      approvalState,
+      reviewNotes: previewReviewNotes,
+    });
+
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+
+    refreshProjects(selectedProject.id);
+    setCenterMode('detail');
+    setNotice(
+      approvalState === 'approved'
+        ? `Approved preview v${result.data.version} for ${selectedProject.gameTitle}.`
+        : `Marked preview v${result.data.version} for revision on ${selectedProject.gameTitle}.`,
+    );
+  };
+
   return (
     <main className="app-shell guide-theme-surface">
       <section className="hero-card guide-panel">
@@ -359,15 +456,15 @@ export default function App() {
           <p className="eyebrow">MY PLAITHROUGH</p>
           <h1>Web workbench kept in step with the Qt desktop app.</h1>
           <p className="lead">
-            Project manifests are now durable in the browser, intake validation runs are persisted,
-            and each project can carry custom CSS so the app and guide surfaces can share a theme.
+            Project manifests, editorial blueprints, and reviewable preview packages are now durable in the browser,
+            while each project keeps its own shared CSS theme for the app and future guide surfaces.
           </p>
         </div>
 
         <div className="hero-badge guide-panel">
           <span className="badge-label">current slice</span>
-          <strong>Durable manifest · intake checks · shared CSS theme</strong>
-          <span>Browser local storage now mirrors the current Qt intake workflow.</span>
+          <strong>Blueprint · preview package · explicit approval review</strong>
+          <span>The preview step is now durable and cannot be mistaken for implicit approval.</span>
         </div>
       </section>
 
@@ -405,6 +502,9 @@ export default function App() {
             </button>
             <button className="btn-secondary" onClick={startBlueprintDraft} disabled={!selectedProject}>
               Draft Blueprint
+            </button>
+            <button className="btn-secondary" onClick={handlePreviewAction} disabled={!selectedProject || !latestBlueprint}>
+              Preview / Review
             </button>
             <button className="btn-ghost" onClick={handleDeleteSelected} disabled={!selectedProject}>
               Delete
@@ -714,6 +814,19 @@ export default function App() {
                 <dt>Blueprint versions</dt>
                 <dd>{selectedBlueprints.length}</dd>
 
+                <dt>Preview slice</dt>
+                <dd>{describePreview(latestPreview, latestBlueprint)}</dd>
+
+                <dt>Preview approval</dt>
+                <dd>
+                  <span className={`status-pill ${statusClass(previewApprovalLabel(latestPreview))}`}>
+                    {previewApprovalLabel(latestPreview)}
+                  </span>
+                </dd>
+
+                <dt>Preview versions</dt>
+                <dd>{selectedPreviews.length}</dd>
+
                 <dt>Storage backend</dt>
                 <dd>Browser local storage</dd>
 
@@ -771,6 +884,65 @@ export default function App() {
                   </div>
                 </section>
               )}
+
+              {latestPreview && (
+                <section className="preview-summary guide-panel">
+                  <div className="panel-heading">
+                    <div>
+                      <p className="section-eyebrow">Latest preview package</p>
+                      <h3>Preview v{latestPreview.version}</h3>
+                    </div>
+                    <span className={`status-pill ${statusClass(previewApprovalLabel(latestPreview))}`}>
+                      {previewApprovalLabel(latestPreview)}
+                    </span>
+                  </div>
+
+                  <div className="preview-meta-row inline-meta">
+                    <span>Generated {formatDate(latestPreview.generatedAt)}</span>
+                    <span>Blueprint v{latestPreview.blueprintVersion}</span>
+                    <span>{latestPreview.sampleSections.length} sample sections</span>
+                  </div>
+
+                  {!previewMatchesLatestBlueprint && latestBlueprint && (
+                    <p className="preview-warning-note">
+                      This preview targets blueprint v{latestPreview.blueprintVersion}; the latest blueprint is v{latestBlueprint.version}, so generate a fresh preview before trusting it.
+                    </p>
+                  )}
+
+                  <div className="preview-section-list">
+                    {latestPreview.sampleSections.map((section) => (
+                      <article key={`${latestPreview.id}-${section.title}`} className="preview-section-card">
+                        <div className="project-list-head">
+                          <strong>{section.title}</strong>
+                          <span className="chip">{previewSectionKindLabel(section)}</span>
+                        </div>
+                        <p className="preview-section-summary">{section.summary}</p>
+                        <p className="preview-section-body">{section.body}</p>
+                      </article>
+                    ))}
+                  </div>
+
+                  <div className="preview-review-form">
+                    <label>
+                      <span>Review notes</span>
+                      <textarea
+                        value={previewReviewNotes}
+                        onChange={(event) => setPreviewReviewNotes(event.target.value)}
+                        placeholder="Record whether the tone, density, checklist behavior, and reference formatting are representative enough to move forward."
+                      />
+                    </label>
+
+                    <div className="action-row">
+                      <button className="btn-primary" onClick={() => handlePreviewReview('approved')}>
+                        Approve Preview
+                      </button>
+                      <button className="btn-secondary" onClick={() => handlePreviewReview('changes-requested')}>
+                        Request Changes
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              )}
             </div>
           ) : (
             <div className="empty-state detail-empty">
@@ -805,6 +977,12 @@ export default function App() {
 
             <dt>Blueprint</dt>
             <dd>{summarizeBlueprint(latestBlueprint)}</dd>
+
+            <dt>Preview</dt>
+            <dd>{describePreview(latestPreview, latestBlueprint)}</dd>
+
+            <dt>Approval</dt>
+            <dd>{previewApprovalLabel(latestPreview)}</dd>
           </dl>
 
           <div className="theme-preview-card guide-panel guide-sample-surface">

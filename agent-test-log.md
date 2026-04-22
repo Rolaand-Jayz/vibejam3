@@ -26,6 +26,13 @@ Qt repository durability tests now exist for the desktop path in `qt/tests/proje
 - [2026-04-22] `qt/tests/project_repository_test.cpp` — GREEN — Added real filesystem-backed blueprint artifacts, version sorting, and `blueprint-ready` state transitions for the Qt repository; reran `ctest --test-dir build/qt --output-on-failure`; 1/1 tests passed.
 - [2026-04-22] Qt runtime smoke — GREEN — Re-ran `timeout(5s) ./build/qt/my-plaithrough` after adding the blueprint dialog and desktop blueprint surfaces; startup remained clean.
 - [2026-04-22] Browser smoke — GREEN — Reloaded the dev web app, drafted and saved a real blueprint for the existing Chrono Trigger project, and verified the state advanced to `BLUEPRINT-READY` with durable blueprint summary rendering.
+- [2026-04-22] `src/orchestration/project-preview.test.ts` — RED — Added preview package service tests first; initial run failed because `ProjectService` had no preview generation or explicit review APIs yet.
+- [2026-04-22] `qt/tests/project_repository_test.cpp` — RED — Added preview durability and approval-state tests; initial Qt build failed because preview types and repository APIs did not exist yet.
+- [2026-04-22] `src/orchestration/project-preview.test.ts` + `src/orchestration/project-service.test.ts` — GREEN — Added durable preview package storage, deterministic preview generation, and explicit approval review on the web path; reran `npx vitest run src/orchestration/project-preview.test.ts src/orchestration/project-service.test.ts`; 5/5 tests passed.
+- [2026-04-22] Web build — GREEN — Added the preview generation/review UI, latest-preview detail surfaces, and approval-state trust signals; reran `npm run build`; production bundle completed successfully.
+- [2026-04-22] `qt/tests/project_repository_test.cpp` — GREEN — Added filesystem-backed preview artifacts, versioned regeneration, and explicit preview review state for the Qt repository; reran `ctest --test-dir build/qt --output-on-failure`; 1/1 tests passed.
+- [2026-04-22] Qt runtime smoke — GREEN — Re-ran `timeout(5s) ./build/qt/my-plaithrough` after adding the desktop preview/review flow; the app stayed up without runtime error output before timeout ended it.
+- [2026-04-22] Browser smoke — GREEN — Created a Chrono Trigger project in the live web app, saved blueprint v1, generated preview v1, and explicitly approved it at `http://127.0.0.1:4174/`.
 
 ## Template
 

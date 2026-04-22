@@ -23,6 +23,7 @@ private slots:
     void createProject();
     void editSelectedProject();
     void draftBlueprintForSelectedProject();
+    void previewSelectedProject();
     void runIntakeCheck();
     void deleteSelectedProject();
     void refreshProjects();
@@ -47,6 +48,7 @@ private:
     QWidget *m_detailPage = nullptr;
     QPushButton *m_editButton = nullptr;
     QPushButton *m_blueprintButton = nullptr;
+    QPushButton *m_previewButton = nullptr;
     QPushButton *m_validateButton = nullptr;
     QPushButton *m_deleteButton = nullptr;
 
@@ -67,6 +69,10 @@ private:
     QLabel *m_blueprintSummaryValue = nullptr;
     QLabel *m_blueprintChaptersValue = nullptr;
     QLabel *m_blueprintUpdatedAtValue = nullptr;
+    QLabel *m_previewSummaryValue = nullptr;
+    QLabel *m_previewApprovalValue = nullptr;
+    QLabel *m_previewSectionsValue = nullptr;
+    QLabel *m_previewUpdatedAtValue = nullptr;
     QLabel *m_createdAtValue = nullptr;
     QLabel *m_identifierValue = nullptr;
 
@@ -80,5 +86,7 @@ private:
     QLabel *m_lensValidationSummaryValue = nullptr;
     QLabel *m_lensThemeCssValue = nullptr;
     QLabel *m_lensBlueprintValue = nullptr;
+    QLabel *m_lensPreviewValue = nullptr;
+    QLabel *m_lensPreviewApprovalValue = nullptr;
     QLabel *m_storagePathValue = nullptr;
 };

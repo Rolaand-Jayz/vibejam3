@@ -1,7 +1,8 @@
-import type { BuildJob, EditorialBlueprint, ProjectManifest, ValidationReport } from '../domain/index.js';
+import type { BuildJob, EditorialBlueprint, PreviewPackage, ProjectManifest, ValidationReport } from '../domain/index.js';
 import {
   BuildJobSchema,
   EditorialBlueprintSchema,
+  PreviewPackageSchema,
   ProjectManifestSchema,
   ValidationReportSchema,
 } from '../domain/index.js';
@@ -9,6 +10,7 @@ import {
 interface StorageSnapshot {
   projects: ProjectManifest[];
   blueprints: EditorialBlueprint[];
+  previews: PreviewPackage[];
   jobs: BuildJob[];
   validationReports: ValidationReport[];
 }
@@ -29,6 +31,7 @@ function createEmptySnapshot(): StorageSnapshot {
   return {
     projects: [],
     blueprints: [],
+    previews: [],
     jobs: [],
     validationReports: [],
   };
@@ -55,6 +58,7 @@ function loadSnapshot(rawValue: string | null): StorageSnapshot {
     const parsed = JSON.parse(rawValue) as {
       projects?: unknown[];
       blueprints?: unknown[];
+      previews?: unknown[];
       jobs?: unknown[];
       validationReports?: unknown[];
     };
@@ -80,6 +84,13 @@ function loadSnapshot(rawValue: string | null): StorageSnapshot {
           .map((result) => result.data)
       : [];
 
+    const previews = Array.isArray(parsed.previews)
+      ? parsed.previews
+          .map((item) => PreviewPackageSchema.safeParse(item))
+          .filter((result) => result.success)
+          .map((result) => result.data)
+      : [];
+
     const validationReports = Array.isArray(parsed.validationReports)
       ? parsed.validationReports
           .map((item) => ValidationReportSchema.safeParse(item))
@@ -90,6 +101,7 @@ function loadSnapshot(rawValue: string | null): StorageSnapshot {
     return {
       projects,
       blueprints,
+      previews,
       jobs,
       validationReports,
     };
@@ -112,6 +124,10 @@ export interface ProjectStorage {
   deleteProject(id: string): boolean;
   createBlueprint(blueprint: Omit<EditorialBlueprint, 'id' | 'createdAt' | 'updatedAt'>): EditorialBlueprint;
   listBlueprints(projectId: string): EditorialBlueprint[];
+  createPreview(preview: Omit<PreviewPackage, 'id' | 'generatedAt' | 'updatedAt'>): PreviewPackage;
+  getPreview(id: string): PreviewPackage | null;
+  updatePreview(id: string, patch: Partial<PreviewPackage>): PreviewPackage | null;
+  listPreviewPackages(projectId: string): PreviewPackage[];
   listJobs(projectId: string): BuildJob[];
   saveJob(job: BuildJob): BuildJob;
   listValidationReports(projectId: string): ValidationReport[];
@@ -125,6 +141,7 @@ export interface ProjectStorage {
 export class InMemoryProjectStorage implements ProjectStorage {
   protected projects = new Map<string, ProjectManifest>();
   protected blueprints = new Map<string, EditorialBlueprint>();
+  protected previews = new Map<string, PreviewPackage>();
   protected jobs = new Map<string, BuildJob>();
   protected validationReports = new Map<string, ValidationReport>();
 
@@ -136,6 +153,7 @@ export class InMemoryProjectStorage implements ProjectStorage {
     return {
       projects: Array.from(this.projects.values()),
       blueprints: Array.from(this.blueprints.values()),
+      previews: Array.from(this.previews.values()),
       jobs: Array.from(this.jobs.values()),
       validationReports: Array.from(this.validationReports.values()),
     };
@@ -144,6 +162,7 @@ export class InMemoryProjectStorage implements ProjectStorage {
   protected hydrate(snapshot: StorageSnapshot): void {
     this.projects = new Map(snapshot.projects.map((project) => [project.id, project]));
     this.blueprints = new Map(snapshot.blueprints.map((blueprint) => [blueprint.id, blueprint]));
+    this.previews = new Map(snapshot.previews.map((preview) => [preview.id, preview]));
     this.jobs = new Map(snapshot.jobs.map((job) => [job.id, job]));
     this.validationReports = new Map(snapshot.validationReports.map((report) => [report.id, report]));
   }
@@ -205,6 +224,12 @@ export class InMemoryProjectStorage implements ProjectStorage {
       }
     }
 
+    for (const preview of Array.from(this.previews.values())) {
+      if (preview.projectId === id) {
+        this.previews.delete(preview.id);
+      }
+    }
+
     for (const job of Array.from(this.jobs.values())) {
       if (job.projectId === id) {
         this.jobs.delete(job.id);
@@ -248,6 +273,57 @@ export class InMemoryProjectStorage implements ProjectStorage {
       });
   }
 
+  createPreview(input: Omit<PreviewPackage, 'id' | 'generatedAt' | 'updatedAt'>): PreviewPackage {
+    const now = new Date().toISOString();
+    const preview: PreviewPackage = {
+      ...input,
+      id: generateUUID(),
+      generatedAt: now,
+      updatedAt: now,
+    };
+
+    const validated = PreviewPackageSchema.parse(preview);
+    this.previews.set(validated.id, validated);
+    this.persist();
+    return validated;
+  }
+
+  getPreview(id: string): PreviewPackage | null {
+    return this.previews.get(id) ?? null;
+  }
+
+  updatePreview(id: string, patch: Partial<PreviewPackage>): PreviewPackage | null {
+    const existing = this.previews.get(id);
+    if (!existing) {
+      return null;
+    }
+
+    const updated = PreviewPackageSchema.parse({
+      ...existing,
+      ...patch,
+      id: existing.id,
+      projectId: existing.projectId,
+      generatedAt: existing.generatedAt,
+      updatedAt: patch.updatedAt ?? new Date().toISOString(),
+    });
+
+    this.previews.set(id, updated);
+    this.persist();
+    return updated;
+  }
+
+  listPreviewPackages(projectId: string): PreviewPackage[] {
+    return Array.from(this.previews.values())
+      .filter((preview) => preview.projectId === projectId)
+      .sort((a, b) => {
+        if (b.version !== a.version) {
+          return b.version - a.version;
+        }
+
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      });
+  }
+
   listJobs(projectId: string): BuildJob[] {
     return Array.from(this.jobs.values())
       .filter((job) => job.projectId === projectId)
@@ -277,6 +353,7 @@ export class InMemoryProjectStorage implements ProjectStorage {
   shutdown(): void {
     this.projects.clear();
     this.blueprints.clear();
+    this.previews.clear();
     this.jobs.clear();
     this.validationReports.clear();
   }

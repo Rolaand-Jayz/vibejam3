@@ -2,6 +2,7 @@
 
 #include "blueprint_dialog.hpp"
 #include "new_project_dialog.hpp"
+#include "preview_review_dialog.hpp"
 
 #include <QAction>
 #include <QDialog>
@@ -86,6 +87,29 @@ BlueprintDraft createBlueprintDraftForProject(const Project &project, const Edit
         .spoilerGuardrails = QStringLiteral("Keep plot reveals out of headings, front matter, and route summaries unless the chosen spoiler policy explicitly allows them."),
     };
 }
+
+QString describePreview(const PreviewPackage *latestPreview, const EditorialBlueprint *latestBlueprint)
+{
+    if (latestPreview == nullptr) {
+        return QStringLiteral("No preview package generated yet.");
+    }
+
+    if (latestBlueprint != nullptr && latestPreview->blueprintVersion != latestBlueprint->version) {
+        return QStringLiteral("Preview v%1 targets blueprint v%2; generate a fresh preview for blueprint v%3.")
+            .arg(latestPreview->version)
+            .arg(latestPreview->blueprintVersion)
+            .arg(latestBlueprint->version);
+    }
+
+    return QStringLiteral("Preview v%1 is ready for review against blueprint v%2.")
+        .arg(latestPreview->version)
+        .arg(latestPreview->blueprintVersion);
+}
+
+bool previewMatchesLatestBlueprint(const PreviewPackage *latestPreview, const EditorialBlueprint *latestBlueprint)
+{
+    return latestPreview != nullptr && latestBlueprint != nullptr && latestPreview->blueprintVersion == latestBlueprint->version;
+}
 }
 
 MainWindow::MainWindow(QWidget *parent)
@@ -107,6 +131,7 @@ void MainWindow::buildUi()
     QAction *newAction = primaryToolbar->addAction(QStringLiteral("New Project"));
     QAction *editAction = primaryToolbar->addAction(QStringLiteral("Edit Project"));
     QAction *blueprintAction = primaryToolbar->addAction(QStringLiteral("Draft Blueprint"));
+    QAction *previewAction = primaryToolbar->addAction(QStringLiteral("Preview / Review"));
     QAction *validateAction = primaryToolbar->addAction(QStringLiteral("Check Intake"));
     QAction *refreshAction = primaryToolbar->addAction(QStringLiteral("Refresh"));
     QAction *deleteAction = primaryToolbar->addAction(QStringLiteral("Delete"));
@@ -114,6 +139,7 @@ void MainWindow::buildUi()
     connect(newAction, &QAction::triggered, this, &MainWindow::createProject);
     connect(editAction, &QAction::triggered, this, &MainWindow::editSelectedProject);
     connect(blueprintAction, &QAction::triggered, this, &MainWindow::draftBlueprintForSelectedProject);
+    connect(previewAction, &QAction::triggered, this, &MainWindow::previewSelectedProject);
     connect(validateAction, &QAction::triggered, this, &MainWindow::runIntakeCheck);
     connect(refreshAction, &QAction::triggered, this, &MainWindow::refreshProjects);
     connect(deleteAction, &QAction::triggered, this, &MainWindow::deleteSelectedProject);
@@ -144,11 +170,13 @@ void MainWindow::buildUi()
     newButton->setObjectName(QStringLiteral("primaryButton"));
     m_editButton = new QPushButton(QStringLiteral("Edit"), leftRail);
     m_blueprintButton = new QPushButton(QStringLiteral("Draft Blueprint"), leftRail);
+    m_previewButton = new QPushButton(QStringLiteral("Preview / Review"), leftRail);
     m_validateButton = new QPushButton(QStringLiteral("Check Intake"), leftRail);
     m_deleteButton = new QPushButton(QStringLiteral("Delete"), leftRail);
     buttonRow->addWidget(newButton);
     buttonRow->addWidget(m_editButton);
     buttonRow->addWidget(m_blueprintButton);
+    buttonRow->addWidget(m_previewButton);
     buttonRow->addWidget(m_validateButton);
     buttonRow->addWidget(m_deleteButton);
 
@@ -166,6 +194,7 @@ void MainWindow::buildUi()
     connect(newButton, &QPushButton::clicked, this, &MainWindow::createProject);
     connect(m_editButton, &QPushButton::clicked, this, &MainWindow::editSelectedProject);
     connect(m_blueprintButton, &QPushButton::clicked, this, &MainWindow::draftBlueprintForSelectedProject);
+    connect(m_previewButton, &QPushButton::clicked, this, &MainWindow::previewSelectedProject);
     connect(m_validateButton, &QPushButton::clicked, this, &MainWindow::runIntakeCheck);
     connect(m_deleteButton, &QPushButton::clicked, this, &MainWindow::deleteSelectedProject);
     connect(m_projectList, &QListWidget::itemSelectionChanged, this, &MainWindow::handleSelectionChanged);
@@ -223,6 +252,10 @@ void MainWindow::buildUi()
     m_blueprintSummaryValue = createValueLabel(m_detailPage);
     m_blueprintChaptersValue = createValueLabel(m_detailPage);
     m_blueprintUpdatedAtValue = createValueLabel(m_detailPage);
+    m_previewSummaryValue = createValueLabel(m_detailPage);
+    m_previewApprovalValue = createBadgeLabel(m_detailPage);
+    m_previewSectionsValue = createValueLabel(m_detailPage);
+    m_previewUpdatedAtValue = createValueLabel(m_detailPage);
     m_createdAtValue = createValueLabel(m_detailPage);
     m_identifierValue = createValueLabel(m_detailPage);
 
@@ -241,6 +274,10 @@ void MainWindow::buildUi()
     detailForm->addRow(QStringLiteral("Editorial blueprint"), m_blueprintSummaryValue);
     detailForm->addRow(QStringLiteral("Blueprint chapters"), m_blueprintChaptersValue);
     detailForm->addRow(QStringLiteral("Blueprint updated"), m_blueprintUpdatedAtValue);
+    detailForm->addRow(QStringLiteral("Preview package"), m_previewSummaryValue);
+    detailForm->addRow(QStringLiteral("Preview approval"), m_previewApprovalValue);
+    detailForm->addRow(QStringLiteral("Preview sections"), m_previewSectionsValue);
+    detailForm->addRow(QStringLiteral("Preview updated"), m_previewUpdatedAtValue);
     detailForm->addRow(QStringLiteral("Created"), m_createdAtValue);
     detailForm->addRow(QStringLiteral("Identifier"), m_identifierValue);
 
@@ -281,6 +318,8 @@ void MainWindow::buildUi()
     m_lensValidationSummaryValue = createValueLabel(lensBox);
     m_lensThemeCssValue = createValueLabel(lensBox);
     m_lensBlueprintValue = createValueLabel(lensBox);
+    m_lensPreviewValue = createValueLabel(lensBox);
+    m_lensPreviewApprovalValue = createBadgeLabel(lensBox);
     m_storagePathValue = createValueLabel(lensBox);
 
     lensForm->addRow(QStringLiteral("Title"), m_lensTitleValue);
@@ -293,6 +332,8 @@ void MainWindow::buildUi()
     lensForm->addRow(QStringLiteral("Summary"), m_lensValidationSummaryValue);
     lensForm->addRow(QStringLiteral("Theme"), m_lensThemeCssValue);
     lensForm->addRow(QStringLiteral("Blueprint"), m_lensBlueprintValue);
+    lensForm->addRow(QStringLiteral("Preview"), m_lensPreviewValue);
+    lensForm->addRow(QStringLiteral("Approval"), m_lensPreviewApprovalValue);
     lensForm->addRow(QStringLiteral("Store"), m_storagePathValue);
 
     rightLayout->addWidget(lensTitle);
@@ -400,6 +441,90 @@ void MainWindow::draftBlueprintForSelectedProject()
     statusBar()->showMessage(QStringLiteral("Saved blueprint v%1 for %2").arg(createdBlueprint.version).arg(projectTitle), 4000);
 }
 
+void MainWindow::previewSelectedProject()
+{
+    const QString projectId = currentProjectId();
+    const Project *project = findProject(projectId);
+    if (project == nullptr) {
+        return;
+    }
+
+    const QString projectTitle = project->displayTitle();
+
+    QString errorMessage;
+    const QVector<EditorialBlueprint> existingBlueprints = m_repository.listBlueprints(projectId, &errorMessage);
+    if (!errorMessage.isEmpty()) {
+        QMessageBox::critical(this, QStringLiteral("Could not load blueprints"), errorMessage);
+        return;
+    }
+
+    if (existingBlueprints.isEmpty()) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("Blueprint required"),
+            QStringLiteral("Draft an editorial blueprint before generating a preview package."));
+        return;
+    }
+
+    const EditorialBlueprint *latestBlueprint = &existingBlueprints.front();
+
+    const QVector<PreviewPackage> existingPreviews = m_repository.listPreviews(projectId, &errorMessage);
+    if (!errorMessage.isEmpty()) {
+        QMessageBox::critical(this, QStringLiteral("Could not load previews"), errorMessage);
+        return;
+    }
+
+    const PreviewPackage *latestPreview = existingPreviews.isEmpty() ? nullptr : &existingPreviews.front();
+    const bool shouldGeneratePreview = latestPreview == nullptr
+        || !previewMatchesLatestBlueprint(latestPreview, latestBlueprint)
+        || latestPreview->approvalState == QStringLiteral("changes-requested")
+        || project->stateLabel() == QStringLiteral("blueprint-ready");
+
+    PreviewPackage workingPreview;
+    if (shouldGeneratePreview) {
+        if (!m_repository.createPreview(projectId, &workingPreview, &errorMessage)) {
+            QMessageBox::critical(this, QStringLiteral("Could not generate preview"), errorMessage);
+            return;
+        }
+
+        refreshProjects();
+        selectProject(projectId);
+    } else {
+        workingPreview = *latestPreview;
+    }
+
+    PreviewReviewDialog dialog(this);
+    dialog.setDialogMode(
+        shouldGeneratePreview ? QStringLiteral("Review Preview Package") : QStringLiteral("Latest Preview Package"),
+        shouldGeneratePreview
+            ? QStringLiteral("A new durable preview was generated from the current blueprint. Review it before later full-build work continues.")
+            : QStringLiteral("Review the latest durable preview and record an explicit approval decision if you are ready."));
+    dialog.setPreview(projectTitle, workingPreview);
+
+    if (dialog.exec() != QDialog::Accepted) {
+        if (shouldGeneratePreview) {
+            statusBar()->showMessage(QStringLiteral("Generated preview v%1 for %2").arg(workingPreview.version).arg(projectTitle), 4000);
+        }
+        refreshProjects();
+        selectProject(projectId);
+        return;
+    }
+
+    PreviewPackage reviewedPreview;
+    if (!m_repository.reviewPreview(workingPreview.id, dialog.approvalState(), dialog.reviewNotes(), &reviewedPreview, &errorMessage)) {
+        QMessageBox::critical(this, QStringLiteral("Could not record preview review"), errorMessage);
+        return;
+    }
+
+    refreshProjects();
+    selectProject(projectId);
+    statusBar()->showMessage(
+        dialog.approvalState() == QStringLiteral("approved")
+            ? QStringLiteral("Approved preview v%1 for %2").arg(reviewedPreview.version).arg(projectTitle)
+            : QStringLiteral("Marked preview v%1 for revision on %2").arg(reviewedPreview.version).arg(projectTitle),
+        4000);
+}
+
 void MainWindow::runIntakeCheck()
 {
     const QString projectId = currentProjectId();
@@ -503,6 +628,7 @@ void MainWindow::showEmptyState()
     m_detailStack->setCurrentWidget(m_emptyPage);
     m_editButton->setEnabled(false);
     m_blueprintButton->setEnabled(false);
+    m_previewButton->setEnabled(false);
     m_validateButton->setEnabled(false);
     m_deleteButton->setEnabled(false);
     m_lensTitleValue->setText(QStringLiteral("No project selected"));
@@ -515,6 +641,8 @@ void MainWindow::showEmptyState()
     m_lensValidationSummaryValue->clear();
     m_lensThemeCssValue->clear();
     m_lensBlueprintValue->clear();
+    m_lensPreviewValue->clear();
+    m_lensPreviewApprovalValue->clear();
     m_storagePathValue->setText(m_repository.projectsRootPath());
 }
 
@@ -522,6 +650,9 @@ void MainWindow::showProject(const Project &project)
 {
     QString repositoryError;
     const QVector<EditorialBlueprint> blueprints = m_repository.listBlueprints(project.id, &repositoryError);
+    const QVector<PreviewPackage> previews = repositoryError.isEmpty()
+        ? m_repository.listPreviews(project.id, &repositoryError)
+        : QVector<PreviewPackage> {};
     const QVector<BuildJob> jobs = repositoryError.isEmpty()
         ? m_repository.listJobs(project.id, &repositoryError)
         : QVector<BuildJob> {};
@@ -529,6 +660,7 @@ void MainWindow::showProject(const Project &project)
         ? m_repository.listValidationReports(project.id, &repositoryError)
         : QVector<ValidationReport> {};
     const EditorialBlueprint *latestBlueprint = blueprints.isEmpty() ? nullptr : &blueprints.front();
+    const PreviewPackage *latestPreview = previews.isEmpty() ? nullptr : &previews.front();
 
     QString validationState = QStringLiteral("NOT RUN");
     QString validationSummary = QStringLiteral("No intake validation has been recorded yet.");
@@ -568,6 +700,10 @@ void MainWindow::showProject(const Project &project)
     m_blueprintSummaryValue->setText(latestBlueprint == nullptr ? QStringLiteral("No editorial blueprint drafted yet.") : latestBlueprint->summaryLine());
     m_blueprintChaptersValue->setText(latestBlueprint == nullptr ? QStringLiteral("No chapter plans yet.") : latestBlueprint->chapterTitleSummary());
     m_blueprintUpdatedAtValue->setText(latestBlueprint == nullptr ? QStringLiteral("Not yet") : latestBlueprint->updatedAt);
+    m_previewSummaryValue->setText(describePreview(latestPreview, latestBlueprint));
+    m_previewApprovalValue->setText(latestPreview == nullptr ? QStringLiteral("NOT GENERATED") : latestPreview->approvalState.toUpper());
+    m_previewSectionsValue->setText(latestPreview == nullptr ? QStringLiteral("No preview sections yet.") : latestPreview->sampleTitleSummary());
+    m_previewUpdatedAtValue->setText(latestPreview == nullptr ? QStringLiteral("Not yet") : latestPreview->updatedAt);
     m_createdAtValue->setText(project.createdAt);
     m_identifierValue->setText(project.id);
 
@@ -581,10 +717,13 @@ void MainWindow::showProject(const Project &project)
     m_lensValidationSummaryValue->setText(validationSummary);
     m_lensThemeCssValue->setText(project.sharedThemeSummary());
     m_lensBlueprintValue->setText(latestBlueprint == nullptr ? QStringLiteral("No blueprint") : latestBlueprint->summaryLine());
+    m_lensPreviewValue->setText(describePreview(latestPreview, latestBlueprint));
+    m_lensPreviewApprovalValue->setText(latestPreview == nullptr ? QStringLiteral("NOT GENERATED") : latestPreview->approvalState.toUpper());
     m_storagePathValue->setText(m_repository.projectRootPath(project.id));
 
     m_editButton->setEnabled(true);
     m_blueprintButton->setEnabled(true);
+    m_previewButton->setEnabled(latestBlueprint != nullptr);
     m_validateButton->setEnabled(true);
     m_deleteButton->setEnabled(true);
     m_detailStack->setCurrentWidget(m_detailPage);
