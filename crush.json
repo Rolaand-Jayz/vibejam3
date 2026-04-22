@@ -1,0 +1,9 @@
+{
+  "$schema": "https://charm.land/crush.json",
+  "options": {
+    "skills_paths": [
+      "/home/rolaandjayz/.agents/skills",
+      ".github/skills"
+    ]
+  }
+}

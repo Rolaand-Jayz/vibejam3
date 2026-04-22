@@ -1,0 +1,586 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  --app-bg: #0f1215;
+  --app-bg-alt: #161a1e;
+  --app-bg-gradient:
+    radial-gradient(circle at top left, rgba(198, 156, 109, 0.18), transparent 24%),
+    radial-gradient(circle at top right, rgba(102, 79, 53, 0.18), transparent 20%),
+    linear-gradient(180deg, #111418 0%, #0d1013 100%);
+  --panel-bg: rgba(22, 26, 30, 0.9);
+  --panel-bg-strong: rgba(15, 18, 21, 0.96);
+  --panel-border: rgba(79, 88, 99, 0.55);
+  --panel-shadow: 0 24px 72px rgba(0, 0, 0, 0.34);
+  --text-primary: #eef1f4;
+  --text-secondary: #c4ccd4;
+  --text-muted: #9099a3;
+  --accent: #c69c6d;
+  --accent-strong: #ddb17d;
+  --accent-weak: rgba(198, 156, 109, 0.16);
+  --success: #7bc1a8;
+  --success-weak: rgba(123, 193, 168, 0.16);
+  --warning: #efc36c;
+  --warning-weak: rgba(239, 195, 108, 0.16);
+  --danger: #de8577;
+  --danger-weak: rgba(222, 133, 119, 0.18);
+  --notice: #9cb6e9;
+  --notice-weak: rgba(156, 182, 233, 0.16);
+  --field-bg: rgba(12, 15, 18, 0.92);
+  --field-border: rgba(72, 82, 93, 0.68);
+  --chip-bg: rgba(198, 156, 109, 0.16);
+  --chip-text: #f2dfc3;
+  --radius-panel: 22px;
+  --radius-control: 14px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-height: 100vh;
+  background: var(--app-bg-gradient);
+  color: var(--text-primary);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+code {
+  font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', monospace;
+}
+
+.guide-theme-surface {
+  min-height: 100vh;
+}
+
+.app-shell {
+  display: grid;
+  gap: 20px;
+  padding: 28px;
+  align-content: start;
+}
+
+.guide-panel,
+.panel,
+.hero-card,
+.message-banner {
+  border: 1px solid var(--panel-border);
+  background: var(--panel-bg);
+  box-shadow: var(--panel-shadow);
+  border-radius: var(--radius-panel);
+  backdrop-filter: blur(16px);
+}
+
+.hero-card {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.8fr);
+  padding: 28px;
+}
+
+.hero-copy h1,
+.panel-heading h2,
+.detail-panel h2,
+.lens-panel h2,
+.empty-state h2 {
+  margin: 0;
+  letter-spacing: -0.03em;
+}
+
+.hero-copy h1 {
+  font-size: clamp(2.3rem, 4.6vw, 4.4rem);
+  line-height: 0.96;
+  max-width: 10ch;
+}
+
+.eyebrow,
+.badge-label,
+.section-eyebrow {
+  margin: 0 0 8px;
+  font-size: 0.75rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.lead,
+.support-copy,
+.muted-text,
+.list-subnote,
+.code-hint,
+.subtle-empty p,
+.empty-state p {
+  color: var(--text-secondary);
+}
+
+.lead {
+  margin: 16px 0 0;
+  max-width: 64ch;
+  font-size: 1rem;
+}
+
+.hero-badge {
+  display: grid;
+  gap: 10px;
+  align-content: center;
+  padding: 22px;
+  background: linear-gradient(180deg, rgba(23, 27, 32, 0.98), rgba(15, 18, 21, 0.96));
+}
+
+.hero-badge strong {
+  font-size: 1.15rem;
+}
+
+.message-banner {
+  padding: 14px 18px;
+}
+
+.notice-banner {
+  background: var(--notice-weak);
+  border-color: rgba(156, 182, 233, 0.35);
+}
+
+.error-banner {
+  background: var(--danger-weak);
+  border-color: rgba(222, 133, 119, 0.35);
+}
+
+.workspace-grid {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(280px, 320px);
+  align-items: start;
+}
+
+.rail-panel,
+.detail-panel,
+.lens-panel {
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+}
+
+.panel-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.panel-heading h2 {
+  font-size: 1.4rem;
+}
+
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.compact-actions > * {
+  flex: 1 1 140px;
+}
+
+.btn-primary,
+.btn-secondary,
+.btn-ghost {
+  border-radius: var(--radius-control);
+  padding: 10px 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.btn-primary:disabled,
+.btn-secondary:disabled,
+.btn-ghost:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-primary {
+  border: none;
+  color: #161412;
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+}
+
+.btn-primary:hover:not(:disabled),
+.btn-secondary:hover:not(:disabled),
+.btn-ghost:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.btn-secondary {
+  border: 1px solid rgba(198, 156, 109, 0.3);
+  background: var(--accent-weak);
+  color: var(--text-primary);
+}
+
+.btn-ghost {
+  border: 1px solid var(--field-border);
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.project-list {
+  display: grid;
+  gap: 10px;
+}
+
+.project-list-item {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--field-border);
+  border-radius: 18px;
+  background: var(--panel-bg-strong);
+  color: var(--text-primary);
+  padding: 14px 16px;
+  display: grid;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.project-list-item.selected {
+  border-color: rgba(198, 156, 109, 0.55);
+  background: rgba(35, 29, 24, 0.88);
+}
+
+.project-list-item p {
+  margin: 0;
+}
+
+.project-list-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.inline-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.status-pill,
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.chip {
+  background: var(--chip-bg);
+  color: var(--chip-text);
+}
+
+.status-pill {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
+.status-intake,
+.status-not-run {
+  background: var(--accent-weak);
+  color: var(--chip-text);
+}
+
+.status-completed,
+.status-frozen {
+  background: var(--success-weak);
+  color: var(--success);
+}
+
+.status-blocked,
+.status-validation-failed,
+.status-failed {
+  background: var(--danger-weak);
+  color: var(--danger);
+}
+
+.status-preview-ready,
+.status-requires-review,
+.status-freeze-pending {
+  background: var(--warning-weak);
+  color: var(--warning);
+}
+
+.status-queued,
+.status-running,
+.status-blueprint-ready,
+.status-knowledge-building,
+.status-preview-generating,
+.status-full-build-running,
+.status-reopened-frozen,
+.status-forked-edition {
+  background: var(--notice-weak);
+  color: var(--notice);
+}
+
+.editor-column {
+  display: grid;
+  gap: 16px;
+}
+
+.blueprint-editor-column {
+  gap: 20px;
+}
+
+.form-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.form-grid label,
+.theme-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.blueprint-text-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.blueprint-text-grid label {
+  display: grid;
+  gap: 8px;
+}
+
+.blueprint-plan-editor textarea,
+.blueprint-text-grid textarea {
+  min-height: 160px;
+}
+
+.form-grid span,
+.theme-editor span {
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--field-border);
+  background: var(--field-bg);
+  color: var(--text-primary);
+  padding: 12px 14px;
+}
+
+textarea {
+  min-height: 250px;
+  resize: vertical;
+  font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', monospace;
+  line-height: 1.55;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: rgba(198, 156, 109, 0.7);
+  box-shadow: 0 0 0 3px rgba(198, 156, 109, 0.14);
+}
+
+select option {
+  background: #0f1215;
+}
+
+.detail-grid,
+.lens-grid {
+  display: grid;
+  gap: 10px 16px;
+  grid-template-columns: minmax(150px, auto) minmax(0, 1fr);
+  align-items: start;
+}
+
+.detail-grid dt,
+.lens-grid dt {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.detail-grid dd,
+.lens-grid dd {
+  margin: 0;
+}
+
+.mono-value {
+  font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', monospace;
+  word-break: break-all;
+}
+
+.theme-preview-card,
+.css-guide,
+.blueprint-summary {
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid var(--field-border);
+  background: rgba(15, 18, 21, 0.82);
+}
+
+.theme-preview-card {
+  display: grid;
+  gap: 12px;
+}
+
+.theme-preview-card h3,
+.css-guide h3,
+.subtle-empty h3 {
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.theme-preview-card p,
+.css-guide p,
+.css-guide ul,
+.empty-state p,
+.support-copy,
+.list-subnote {
+  margin: 0;
+}
+
+.css-guide {
+  display: grid;
+  gap: 12px;
+}
+
+.blueprint-summary {
+  display: grid;
+  gap: 16px;
+}
+
+.blueprint-summary h3,
+.blueprint-summary h4 {
+  margin: 0;
+}
+
+.blueprint-chapter-list {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.blueprint-chapter-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--field-border);
+  background: rgba(20, 24, 28, 0.88);
+}
+
+.blueprint-chapter-card p,
+.blueprint-notes-grid p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.blueprint-notes-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.blueprint-notes-grid > div {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(79, 88, 99, 0.42);
+  background: rgba(20, 24, 28, 0.65);
+}
+
+.css-guide ul {
+  padding-left: 18px;
+  color: var(--text-secondary);
+}
+
+.empty-state {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+  padding: 18px 0;
+}
+
+.subtle-empty {
+  padding: 12px 4px;
+}
+
+.detail-empty {
+  justify-items: start;
+  align-content: center;
+  min-height: 320px;
+}
+
+@media (max-width: 1320px) {
+  .workspace-grid {
+    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  }
+
+  .lens-panel {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 940px) {
+  .app-shell {
+    padding: 18px;
+  }
+
+  .hero-card,
+  .workspace-grid,
+  .form-grid,
+  .blueprint-text-grid,
+  .blueprint-notes-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-heading,
+  .project-list-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .detail-grid,
+  .lens-grid {
+    grid-template-columns: 1fr;
+  }
+}
