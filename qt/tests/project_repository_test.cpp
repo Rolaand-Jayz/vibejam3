@@ -23,6 +23,11 @@ private slots:
     void preview_generation_requires_a_blueprint();
     void preview_generation_persists_and_advances_state();
     void preview_review_decisions_persist_and_regeneration_versions();
+    void full_build_requires_an_approved_preview();
+    void full_build_persists_bundle_and_freeze_pending_state();
+    void full_build_with_blocking_visible_conflict_sets_validation_failed_state();
+    void knowledge_entities_require_provenance_and_persist_hidden_codex_entries();
+    void knowledge_entity_updates_survive_reopen_without_regressing_preview_state();
 };
 
 void ProjectRepositoryTest::create_persists_intake_state_across_reopen()
@@ -131,6 +136,7 @@ void ProjectRepositoryTest::create_builds_project_workspace_layout()
     QVERIFY2(QDir(projectRoot).exists(), qPrintable(projectRoot));
     QVERIFY2(QFile::exists(projectRoot + QStringLiteral("/project-manifest.json")), "manifest file should exist");
     QVERIFY2(QDir(projectRoot + QStringLiteral("/editions")).exists(), "editions directory should exist");
+    QVERIFY2(QDir(projectRoot + QStringLiteral("/knowledge")).exists(), "knowledge directory should exist");
     QVERIFY2(QDir(projectRoot + QStringLiteral("/previews")).exists(), "previews directory should exist");
     QVERIFY2(QDir(projectRoot + QStringLiteral("/assets")).exists(), "assets directory should exist");
     QVERIFY2(QDir(projectRoot + QStringLiteral("/validations")).exists(), "validations directory should exist");
@@ -512,6 +518,547 @@ void ProjectRepositoryTest::preview_review_decisions_persist_and_regeneration_ve
     QCOMPARE(previews.front().approvalState, QStringLiteral("approved"));
     QCOMPARE(previews.back().version, 1);
     QCOMPARE(previews.back().approvalState, QStringLiteral("changes-requested"));
+}
+
+void ProjectRepositoryTest::full_build_requires_an_approved_preview()
+{
+    QTemporaryDir tempDir;
+    QVERIFY2(tempDir.isValid(), "temporary directory should be available");
+
+    ProjectRepository repository(tempDir.path());
+    ProjectDraft draft {
+        .gameTitle = QStringLiteral("Final Fantasy VI"),
+        .platform = QStringLiteral("SNES"),
+        .guideIntent = QStringLiteral("balanced route with trusted reference notes"),
+        .playerGoal = QStringLiteral("finish the story and keep key missables safe"),
+        .runStyle = QStringLiteral("casual"),
+        .spoilerPolicy = QStringLiteral("minimal"),
+        .depthPreference = QStringLiteral("standard"),
+        .sharedThemeCss = QStringLiteral(".guide-theme-surface { --accent: #d6a55f; }"),
+    };
+
+    Project created;
+    QString errorMessage;
+    QVERIFY2(repository.create(draft, &created, &errorMessage), qPrintable(errorMessage));
+
+    BlueprintDraft blueprintDraft {
+        .chapterPlans = {
+            BlueprintChapterPlan { QStringLiteral("Opening route"), QStringLiteral("Establish the early route, setup, and irreversible warnings.") },
+            BlueprintChapterPlan { QStringLiteral("World of Balance core path"), QStringLiteral("Lay out the mid-game route and party checkpoints.") },
+            BlueprintChapterPlan { QStringLiteral("World of Ruin cleanup"), QStringLiteral("Track optional reunions and final preparation.") },
+        },
+        .terminologyRules = QStringLiteral("Use official location, boss, and esper names."),
+        .styleBible = QStringLiteral("Keep the tone calm, tactical, and book-like."),
+        .crossReferencePlan = QStringLiteral("Tie route warnings back to reference notes and missable callouts."),
+        .checklistPlan = QStringLiteral("End each chapter with a short irreversible-check list."),
+        .visualPackIntent = QStringLiteral("Warm field-manual cards with compact tactical density."),
+        .spoilerGuardrails = QStringLiteral("Keep plot reveals out of headings and route summaries."),
+    };
+
+    EditorialBlueprint blueprint;
+    QVERIFY2(repository.createBlueprint(created.id, blueprintDraft, &blueprint, &errorMessage), qPrintable(errorMessage));
+
+    PreviewPackage preview;
+    QVERIFY2(repository.createPreview(created.id, &preview, &errorMessage), qPrintable(errorMessage));
+
+    GuideBuildBundle bundle;
+    QVERIFY2(!repository.createFullBuild(created.id, &bundle, &errorMessage), "full build should fail until the preview is approved");
+    QVERIFY2(errorMessage.contains(QStringLiteral("preview"), Qt::CaseInsensitive), qPrintable(errorMessage));
+}
+
+void ProjectRepositoryTest::full_build_persists_bundle_and_freeze_pending_state()
+{
+    QTemporaryDir tempDir;
+    QVERIFY2(tempDir.isValid(), "temporary directory should be available");
+
+    ProjectRepository repository(tempDir.path());
+    ProjectDraft draft {
+        .gameTitle = QStringLiteral("Final Fantasy VI"),
+        .platform = QStringLiteral("SNES"),
+        .guideIntent = QStringLiteral("balanced route with trusted reference notes"),
+        .playerGoal = QStringLiteral("finish the story and keep key missables safe"),
+        .runStyle = QStringLiteral("casual"),
+        .spoilerPolicy = QStringLiteral("minimal"),
+        .depthPreference = QStringLiteral("standard"),
+        .sharedThemeCss = QStringLiteral(".guide-theme-surface { --accent: #d6a55f; }"),
+    };
+
+    Project created;
+    QString errorMessage;
+    QVERIFY2(repository.create(draft, &created, &errorMessage), qPrintable(errorMessage));
+
+    BlueprintDraft blueprintDraft {
+        .chapterPlans = {
+            BlueprintChapterPlan { QStringLiteral("Opening route"), QStringLiteral("Establish the early route, setup, and irreversible warnings.") },
+            BlueprintChapterPlan { QStringLiteral("World of Balance core path"), QStringLiteral("Lay out the mid-game route and party checkpoints.") },
+            BlueprintChapterPlan { QStringLiteral("World of Ruin cleanup"), QStringLiteral("Track optional reunions and final preparation.") },
+        },
+        .terminologyRules = QStringLiteral("Use official location, boss, and esper names."),
+        .styleBible = QStringLiteral("Keep the tone calm, tactical, and book-like."),
+        .crossReferencePlan = QStringLiteral("Tie route warnings back to reference notes and missable callouts."),
+        .checklistPlan = QStringLiteral("End each chapter with a short irreversible-check list."),
+        .visualPackIntent = QStringLiteral("Warm field-manual cards with compact tactical density."),
+        .spoilerGuardrails = QStringLiteral("Keep plot reveals out of headings and route summaries."),
+    };
+
+    EditorialBlueprint blueprint;
+    QVERIFY2(repository.createBlueprint(created.id, blueprintDraft, &blueprint, &errorMessage), qPrintable(errorMessage));
+
+    KnowledgeEntityDraft visibleDraft {
+        .canonicalName = QStringLiteral("Zozo clock clue"),
+        .category = QStringLiteral("quest"),
+        .visibility = QStringLiteral("visible-guide"),
+        .scope = QStringLiteral("broad"),
+        .confidence = QStringLiteral("high"),
+        .aliases = { QStringLiteral("Clock puzzle") },
+        .summary = QStringLiteral("The Zozo clock puzzle should be quoted with the solved time instead of paraphrasing the merchant clue chain."),
+        .structuredAttributes = {
+            KnowledgeAttribute { QStringLiteral("Correct answer"), QStringLiteral("6:10:50") },
+            KnowledgeAttribute { QStringLiteral("Guide usage"), QStringLiteral("Visible route note and missable checkpoint callout") },
+        },
+        .sourceRefs = {
+            SourceReference {
+                .id = QString(),
+                .sourceType = QStringLiteral("manual-entry"),
+                .sourceTitle = QStringLiteral("SNES route notebook"),
+                .sourceUri = QStringLiteral("https://example.com/ff6-route-notes"),
+                .excerpt = QStringLiteral("Clock clue resolves to 6:10:50 once the merchant hints are combined correctly."),
+                .retrievalDate = QStringLiteral("2026-04-22T00:00:00Z"),
+                .trustClassification = QStringLiteral("community-verified"),
+            },
+        },
+        .conflictMarkers = {},
+        .versionTags = { QStringLiteral("snes") },
+    };
+
+    KnowledgeEntity visibleKnowledge;
+    QVERIFY2(repository.createKnowledgeEntity(created.id, visibleDraft, &visibleKnowledge, &errorMessage), qPrintable(errorMessage));
+
+    KnowledgeEntityDraft hiddenDraft {
+        .canonicalName = QStringLiteral("Sketch glitch caution"),
+        .category = QStringLiteral("system"),
+        .visibility = QStringLiteral("hidden-codex"),
+        .scope = QStringLiteral("run-specific"),
+        .confidence = QStringLiteral("medium"),
+        .aliases = { QStringLiteral("Sketch exploit") },
+        .summary = QStringLiteral("Hidden codex note about unstable sketch behavior that should stay out of visible guide copy."),
+        .structuredAttributes = {
+            KnowledgeAttribute { QStringLiteral("Risk"), QStringLiteral("Potential save corruption on some versions") },
+        },
+        .sourceRefs = {
+            SourceReference {
+                .id = QString(),
+                .sourceType = QStringLiteral("manual-entry"),
+                .sourceTitle = QStringLiteral("Internal safety notes"),
+                .sourceUri = QString(),
+                .excerpt = QStringLiteral("Keep this in the hidden codex until a clean repro path is documented."),
+                .retrievalDate = QStringLiteral("2026-04-22T00:00:00Z"),
+                .trustClassification = QStringLiteral("working-notes"),
+            },
+        },
+        .conflictMarkers = {},
+        .versionTags = { QStringLiteral("snes") },
+    };
+
+    KnowledgeEntity hiddenKnowledge;
+    QVERIFY2(repository.createKnowledgeEntity(created.id, hiddenDraft, &hiddenKnowledge, &errorMessage), qPrintable(errorMessage));
+
+    PreviewPackage preview;
+    QVERIFY2(repository.createPreview(created.id, &preview, &errorMessage), qPrintable(errorMessage));
+
+    PreviewPackage approvedPreview;
+    QVERIFY2(repository.reviewPreview(preview.id, QStringLiteral("approved"), QStringLiteral("Representative enough to continue into the first bounded full build."), &approvedPreview, &errorMessage), qPrintable(errorMessage));
+
+    GuideBuildBundle buildBundle;
+    QVERIFY2(repository.createFullBuild(created.id, &buildBundle, &errorMessage), qPrintable(errorMessage));
+    QCOMPARE(buildBundle.version, 1);
+    QCOMPARE(buildBundle.validationState, QStringLiteral("freeze-pending"));
+    QVERIFY2(buildBundle.units.size() >= 5, "build bundle should contain bounded guide units");
+    QCOMPARE(buildBundle.hiddenCodexIds.size(), 1);
+
+    QString combinedBody;
+    for (const GuideBuildUnit &unit : buildBundle.units) {
+        combinedBody += unit.body;
+        combinedBody += QStringLiteral("\n\n");
+    }
+    QVERIFY2(combinedBody.contains(QStringLiteral("Zozo clock clue")), "visible guide facts should appear in the build bundle");
+    QVERIFY2(!combinedBody.contains(QStringLiteral("Sketch glitch caution")), "hidden codex notes should not leak into visible build text");
+
+    const QVector<BuildJob> jobs = repository.listJobs(created.id, &errorMessage);
+    QVERIFY2(errorMessage.isEmpty(), qPrintable(errorMessage));
+    QCOMPARE(jobs.size(), 1);
+    QCOMPARE(jobs.front().jobType, QStringLiteral("full-build"));
+    QCOMPARE(jobs.front().status, QStringLiteral("requires-review"));
+
+    const QVector<ValidationReport> reports = repository.listValidationReports(created.id, &errorMessage);
+    QVERIFY2(errorMessage.isEmpty(), qPrintable(errorMessage));
+    QCOMPARE(reports.size(), 1);
+    QCOMPARE(reports.front().blockingCount, 0);
+
+    ProjectRepository reopened(tempDir.path());
+    const QVector<Project> projects = reopened.all(&errorMessage);
+    QVERIFY2(errorMessage.isEmpty(), qPrintable(errorMessage));
+    QCOMPARE(projects.size(), 1);
+    QCOMPARE(projects.front().projectState, QStringLiteral("freeze-pending"));
+
+    const QVector<GuideBuildBundle> bundles = reopened.listBuildBundles(created.id, &errorMessage);
+    QVERIFY2(errorMessage.isEmpty(), qPrintable(errorMessage));
+    QCOMPARE(bundles.size(), 1);
+    QCOMPARE(bundles.front().validationState, QStringLiteral("freeze-pending"));
+    QVERIFY2(QFile::exists(tempDir.path() + QStringLiteral("/projects/") + created.id + QStringLiteral("/build-bundles/") + buildBundle.id + QStringLiteral(".json")), "build bundle record should be written to the project workspace");
+}
+
+void ProjectRepositoryTest::full_build_with_blocking_visible_conflict_sets_validation_failed_state()
+{
+    QTemporaryDir tempDir;
+    QVERIFY2(tempDir.isValid(), "temporary directory should be available");
+
+    ProjectRepository repository(tempDir.path());
+    ProjectDraft draft {
+        .gameTitle = QStringLiteral("Final Fantasy VI"),
+        .platform = QStringLiteral("SNES"),
+        .guideIntent = QStringLiteral("balanced route with trusted reference notes"),
+        .playerGoal = QStringLiteral("finish the story and keep key missables safe"),
+        .runStyle = QStringLiteral("casual"),
+        .spoilerPolicy = QStringLiteral("minimal"),
+        .depthPreference = QStringLiteral("standard"),
+        .sharedThemeCss = QStringLiteral(".guide-theme-surface { --accent: #d6a55f; }"),
+    };
+
+    Project created;
+    QString errorMessage;
+    QVERIFY2(repository.create(draft, &created, &errorMessage), qPrintable(errorMessage));
+
+    BlueprintDraft blueprintDraft {
+        .chapterPlans = {
+            BlueprintChapterPlan { QStringLiteral("Opening route"), QStringLiteral("Establish the early route, setup, and irreversible warnings.") },
+            BlueprintChapterPlan { QStringLiteral("World of Balance core path"), QStringLiteral("Lay out the mid-game route and party checkpoints.") },
+            BlueprintChapterPlan { QStringLiteral("World of Ruin cleanup"), QStringLiteral("Track optional reunions and final preparation.") },
+        },
+        .terminologyRules = QStringLiteral("Use official location, boss, and esper names."),
+        .styleBible = QStringLiteral("Keep the tone calm, tactical, and book-like."),
+        .crossReferencePlan = QStringLiteral("Tie route warnings back to reference notes and missable callouts."),
+        .checklistPlan = QStringLiteral("End each chapter with a short irreversible-check list."),
+        .visualPackIntent = QStringLiteral("Warm field-manual cards with compact tactical density."),
+        .spoilerGuardrails = QStringLiteral("Keep plot reveals out of headings and route summaries."),
+    };
+
+    EditorialBlueprint blueprint;
+    QVERIFY2(repository.createBlueprint(created.id, blueprintDraft, &blueprint, &errorMessage), qPrintable(errorMessage));
+
+    KnowledgeEntityDraft visibleDraft {
+        .canonicalName = QStringLiteral("Zozo clock clue"),
+        .category = QStringLiteral("quest"),
+        .visibility = QStringLiteral("visible-guide"),
+        .scope = QStringLiteral("broad"),
+        .confidence = QStringLiteral("high"),
+        .aliases = { QStringLiteral("Clock puzzle") },
+        .summary = QStringLiteral("The Zozo clock puzzle should be quoted with the solved time instead of paraphrasing the merchant clue chain."),
+        .structuredAttributes = {
+            KnowledgeAttribute { QStringLiteral("Correct answer"), QStringLiteral("6:10:50") },
+        },
+        .sourceRefs = {
+            SourceReference {
+                .id = QString(),
+                .sourceType = QStringLiteral("manual-entry"),
+                .sourceTitle = QStringLiteral("SNES route notebook"),
+                .sourceUri = QStringLiteral("https://example.com/ff6-route-notes"),
+                .excerpt = QStringLiteral("Clock clue resolves to 6:10:50 once the merchant hints are combined correctly."),
+                .retrievalDate = QStringLiteral("2026-04-22T00:00:00Z"),
+                .trustClassification = QStringLiteral("community-verified"),
+            },
+        },
+        .conflictMarkers = {
+            ConflictRecord {
+                .id = QString(),
+                .conflictSummary = QStringLiteral("Two route notes disagree on whether the clock solution should be delayed until after the first detour."),
+                .conflictType = QStringLiteral("route-order-disagreement"),
+                .severity = QStringLiteral("blocking"),
+                .resolutionStatus = QStringLiteral("open"),
+                .recommendedHandling = QStringLiteral("Do not freeze the guide until the route order is re-verified against a clean save."),
+            },
+        },
+        .versionTags = { QStringLiteral("snes") },
+    };
+
+    KnowledgeEntity visibleKnowledge;
+    QVERIFY2(repository.createKnowledgeEntity(created.id, visibleDraft, &visibleKnowledge, &errorMessage), qPrintable(errorMessage));
+
+    PreviewPackage preview;
+    QVERIFY2(repository.createPreview(created.id, &preview, &errorMessage), qPrintable(errorMessage));
+
+    PreviewPackage approvedPreview;
+    QVERIFY2(repository.reviewPreview(preview.id, QStringLiteral("approved"), QStringLiteral("Representative enough to continue into the first bounded full build."), &approvedPreview, &errorMessage), qPrintable(errorMessage));
+
+    GuideBuildBundle buildBundle;
+    QVERIFY2(repository.createFullBuild(created.id, &buildBundle, &errorMessage), qPrintable(errorMessage));
+    QCOMPARE(buildBundle.validationState, QStringLiteral("validation-failed"));
+
+    const QVector<BuildJob> jobs = repository.listJobs(created.id, &errorMessage);
+    QVERIFY2(errorMessage.isEmpty(), qPrintable(errorMessage));
+    QCOMPARE(jobs.size(), 1);
+    QCOMPARE(jobs.front().status, QStringLiteral("blocked"));
+
+    const QVector<ValidationReport> reports = repository.listValidationReports(created.id, &errorMessage);
+    QVERIFY2(errorMessage.isEmpty(), qPrintable(errorMessage));
+    QCOMPARE(reports.size(), 1);
+    QCOMPARE(reports.front().blockingCount, 1);
+
+    ProjectRepository reopened(tempDir.path());
+    const QVector<Project> projects = reopened.all(&errorMessage);
+    QVERIFY2(errorMessage.isEmpty(), qPrintable(errorMessage));
+    QCOMPARE(projects.size(), 1);
+    QCOMPARE(projects.front().projectState, QStringLiteral("validation-failed"));
+}
+
+void ProjectRepositoryTest::knowledge_entities_require_provenance_and_persist_hidden_codex_entries()
+{
+    QTemporaryDir tempDir;
+    QVERIFY2(tempDir.isValid(), "temporary directory should be available");
+
+    ProjectRepository repository(tempDir.path());
+    ProjectDraft draft {
+        .gameTitle = QStringLiteral("Final Fantasy VI"),
+        .platform = QStringLiteral("SNES"),
+        .guideIntent = QStringLiteral("balanced route"),
+        .playerGoal = QStringLiteral("finish the story"),
+        .runStyle = QStringLiteral("casual"),
+        .spoilerPolicy = QStringLiteral("minimal"),
+        .depthPreference = QStringLiteral("standard"),
+        .sharedThemeCss = QStringLiteral(),
+    };
+
+    Project created;
+    QString errorMessage;
+    QVERIFY2(repository.create(draft, &created, &errorMessage), qPrintable(errorMessage));
+
+    KnowledgeEntityDraft invalidDraft {
+        .canonicalName = QStringLiteral("Zozo clock clue"),
+        .category = QStringLiteral("quest"),
+        .visibility = QStringLiteral("visible-guide"),
+        .scope = QStringLiteral("broad"),
+        .confidence = QStringLiteral("medium"),
+        .aliases = { QStringLiteral("Clock puzzle") },
+        .summary = QStringLiteral("The Zozo clock puzzle unlocks the route forward once the clue text is decoded correctly."),
+        .structuredAttributes = {
+            KnowledgeAttribute { QStringLiteral("Correct answer"), QStringLiteral("6:10:50") },
+        },
+        .sourceRefs = {},
+        .conflictMarkers = {},
+        .versionTags = { QStringLiteral("snes") },
+    };
+
+    KnowledgeEntity knowledge;
+    QVERIFY2(!repository.createKnowledgeEntity(created.id, invalidDraft, &knowledge, &errorMessage), "knowledge creation should fail without provenance");
+    QVERIFY2(errorMessage.contains(QStringLiteral("source"), Qt::CaseInsensitive), qPrintable(errorMessage));
+
+    KnowledgeEntityDraft visibleDraft {
+        .canonicalName = QStringLiteral("Zozo clock clue"),
+        .category = QStringLiteral("quest"),
+        .visibility = QStringLiteral("visible-guide"),
+        .scope = QStringLiteral("broad"),
+        .confidence = QStringLiteral("medium"),
+        .aliases = { QStringLiteral("Clock puzzle") },
+        .summary = QStringLiteral("The Zozo clock puzzle unlocks the route forward once the clue text is decoded correctly."),
+        .structuredAttributes = {
+            KnowledgeAttribute { QStringLiteral("Correct answer"), QStringLiteral("6:10:50") },
+            KnowledgeAttribute { QStringLiteral("Gate"), QStringLiteral("Required for Terra branch progress") },
+        },
+        .sourceRefs = {
+            SourceReference {
+                .id = QString(),
+                .sourceType = QStringLiteral("manual-entry"),
+                .sourceTitle = QStringLiteral("SNES playthrough notes"),
+                .sourceUri = QStringLiteral("https://example.com/ff6-notes"),
+                .excerpt = QStringLiteral("Clock clue leads to the correct setting once the merchant hints are combined."),
+                .retrievalDate = QStringLiteral("2026-04-22T00:00:00Z"),
+                .trustClassification = QStringLiteral("community-verified"),
+            },
+        },
+        .conflictMarkers = {
+            ConflictRecord {
+                .id = QString(),
+                .conflictSummary = QStringLiteral("Some fan notes swap the minute and second hands when paraphrasing the clue."),
+                .conflictType = QStringLiteral("instruction-ambiguity"),
+                .severity = QStringLiteral("warning"),
+                .resolutionStatus = QStringLiteral("open"),
+                .recommendedHandling = QStringLiteral("Quote the final solved time exactly instead of paraphrasing the hint chain."),
+            },
+        },
+        .versionTags = { QStringLiteral("snes"), QStringLiteral("pixel-remaster") },
+    };
+
+    KnowledgeEntity visibleKnowledge;
+    QVERIFY2(repository.createKnowledgeEntity(created.id, visibleDraft, &visibleKnowledge, &errorMessage), qPrintable(errorMessage));
+    QCOMPARE(visibleKnowledge.visibility, QStringLiteral("visible-guide"));
+    QCOMPARE(visibleKnowledge.sourceRefs.size(), 1);
+    QCOMPARE(visibleKnowledge.conflictMarkers.size(), 1);
+
+    KnowledgeEntityDraft hiddenDraft {
+        .canonicalName = QStringLiteral("Sketch glitch caution"),
+        .category = QStringLiteral("system"),
+        .visibility = QStringLiteral("hidden-codex"),
+        .scope = QStringLiteral("run-specific"),
+        .confidence = QStringLiteral("low"),
+        .aliases = { QStringLiteral("Sketch exploit") },
+        .summary = QStringLiteral("Hidden codex note for unstable sketch behavior that should not be surfaced in the visible guide without extra verification."),
+        .structuredAttributes = {
+            KnowledgeAttribute { QStringLiteral("Risk"), QStringLiteral("Save corruption in some versions") },
+        },
+        .sourceRefs = {
+            SourceReference {
+                .id = QString(),
+                .sourceType = QStringLiteral("manual-entry"),
+                .sourceTitle = QStringLiteral("Safety notes"),
+                .sourceUri = QString(),
+                .excerpt = QStringLiteral("Hold this in the hidden codex until a cleaner repro path is documented."),
+                .retrievalDate = QStringLiteral("2026-04-22T00:00:00Z"),
+                .trustClassification = QStringLiteral("working-notes"),
+            },
+        },
+        .conflictMarkers = {},
+        .versionTags = { QStringLiteral("snes") },
+    };
+
+    KnowledgeEntity hiddenKnowledge;
+    QVERIFY2(repository.createKnowledgeEntity(created.id, hiddenDraft, &hiddenKnowledge, &errorMessage), qPrintable(errorMessage));
+    QCOMPARE(hiddenKnowledge.visibility, QStringLiteral("hidden-codex"));
+
+    const QVector<Project> projects = repository.all(&errorMessage);
+    QVERIFY2(errorMessage.isEmpty(), qPrintable(errorMessage));
+    QCOMPARE(projects.size(), 1);
+    QCOMPARE(projects.front().projectState, QStringLiteral("knowledge-building"));
+
+    const QVector<KnowledgeEntity> entities = repository.listKnowledgeEntities(created.id, &errorMessage);
+    QVERIFY2(errorMessage.isEmpty(), qPrintable(errorMessage));
+    QCOMPARE(entities.size(), 2);
+    QCOMPARE(entities.front().visibility, QStringLiteral("hidden-codex"));
+    QCOMPARE(entities.back().visibility, QStringLiteral("visible-guide"));
+    QVERIFY2(QFile::exists(tempDir.path() + QStringLiteral("/projects/") + created.id + QStringLiteral("/knowledge/") + visibleKnowledge.id + QStringLiteral(".json")), "visible knowledge record should be written to the knowledge workspace");
+}
+
+void ProjectRepositoryTest::knowledge_entity_updates_survive_reopen_without_regressing_preview_state()
+{
+    QTemporaryDir tempDir;
+    QVERIFY2(tempDir.isValid(), "temporary directory should be available");
+
+    ProjectRepository repository(tempDir.path());
+    ProjectDraft draft {
+        .gameTitle = QStringLiteral("Vagrant Story"),
+        .platform = QStringLiteral("PS1"),
+        .guideIntent = QStringLiteral("boss strategy notebook"),
+        .playerGoal = QStringLiteral("finish the story"),
+        .runStyle = QStringLiteral("casual"),
+        .spoilerPolicy = QStringLiteral("minimal"),
+        .depthPreference = QStringLiteral("standard"),
+        .sharedThemeCss = QStringLiteral(),
+    };
+
+    Project created;
+    QString errorMessage;
+    QVERIFY2(repository.create(draft, &created, &errorMessage), qPrintable(errorMessage));
+
+    BlueprintDraft blueprintDraft {
+        .chapterPlans = {
+            BlueprintChapterPlan { QStringLiteral("Workshop opening"), QStringLiteral("Cover first systems and weapon basics.") },
+            BlueprintChapterPlan { QStringLiteral("Catacombs loop"), QStringLiteral("Explain optional detours and risk/reward.") },
+        },
+        .terminologyRules = QStringLiteral("Prefer official boss names and weapon class labels."),
+        .styleBible = QStringLiteral("Use short tactical paragraphs with one caution callout per chapter."),
+        .crossReferencePlan = QStringLiteral("Tie material notes back to weapon families and break arts."),
+        .checklistPlan = QStringLiteral("Track workshop exits, key pickups, and affinity prep."),
+        .visualPackIntent = QStringLiteral("Dense reference cards with low ornament and warmer highlights."),
+        .spoilerGuardrails = QStringLiteral("Keep late dungeon names out of early summaries."),
+    };
+
+    EditorialBlueprint blueprint;
+    QVERIFY2(repository.createBlueprint(created.id, blueprintDraft, &blueprint, &errorMessage), qPrintable(errorMessage));
+
+    PreviewPackage preview;
+    QVERIFY2(repository.createPreview(created.id, &preview, &errorMessage), qPrintable(errorMessage));
+
+    KnowledgeEntityDraft knowledgeDraft {
+        .canonicalName = QStringLiteral("Dragon reach breakpoint"),
+        .category = QStringLiteral("system"),
+        .visibility = QStringLiteral("hidden-codex"),
+        .scope = QStringLiteral("run-specific"),
+        .confidence = QStringLiteral("medium"),
+        .aliases = { QStringLiteral("Break arts threshold") },
+        .summary = QStringLiteral("Hidden codex note tracking when dragon-affinity reach starts to outscale generic safety setups."),
+        .structuredAttributes = {
+            KnowledgeAttribute { QStringLiteral("Risk profile"), QStringLiteral("High if gear affinity lags behind") },
+        },
+        .sourceRefs = {
+            SourceReference {
+                .id = QString(),
+                .sourceType = QStringLiteral("manual-entry"),
+                .sourceTitle = QStringLiteral("Workshop test file"),
+                .sourceUri = QString(),
+                .excerpt = QStringLiteral("Damage stability changes once dragon reach and affinity prep line up."),
+                .retrievalDate = QStringLiteral("2026-04-22T00:00:00Z"),
+                .trustClassification = QStringLiteral("working-notes"),
+            },
+        },
+        .conflictMarkers = {},
+        .versionTags = { QStringLiteral("ps1") },
+    };
+
+    KnowledgeEntity knowledge;
+    QVERIFY2(repository.createKnowledgeEntity(created.id, knowledgeDraft, &knowledge, &errorMessage), qPrintable(errorMessage));
+
+    KnowledgeEntityDraft updatedDraft {
+        .canonicalName = QStringLiteral("Dragon reach breakpoint"),
+        .category = QStringLiteral("system"),
+        .visibility = QStringLiteral("hidden-codex"),
+        .scope = QStringLiteral("run-specific"),
+        .confidence = QStringLiteral("high"),
+        .aliases = { QStringLiteral("Break arts threshold"), QStringLiteral("Dragon affinity breakpoint") },
+        .summary = QStringLiteral("Hidden codex note confirming the safer breakpoint for dragon reach scaling after affinity prep is locked in."),
+        .structuredAttributes = {
+            KnowledgeAttribute { QStringLiteral("Risk profile"), QStringLiteral("Stable once affinity prep is complete") },
+            KnowledgeAttribute { QStringLiteral("Guide usage"), QStringLiteral("Reference only; do not surface in spoiler-light chapter copy") },
+        },
+        .sourceRefs = {
+            SourceReference {
+                .id = QString(),
+                .sourceType = QStringLiteral("manual-entry"),
+                .sourceTitle = QStringLiteral("Workshop test file"),
+                .sourceUri = QString(),
+                .excerpt = QStringLiteral("Confirmed breakpoint after repeated affinity setup runs."),
+                .retrievalDate = QStringLiteral("2026-04-22T00:00:00Z"),
+                .trustClassification = QStringLiteral("working-notes"),
+            },
+        },
+        .conflictMarkers = {
+            ConflictRecord {
+                .id = QString(),
+                .conflictSummary = QStringLiteral("Older community notes cite the breakpoint one chapter earlier."),
+                .conflictType = QStringLiteral("timing-disagreement"),
+                .severity = QStringLiteral("warning"),
+                .resolutionStatus = QStringLiteral("monitoring"),
+                .recommendedHandling = QStringLiteral("Keep this codex-only until the route note is validated against another clean save."),
+            },
+        },
+        .versionTags = { QStringLiteral("ps1"), QStringLiteral("route-b") },
+    };
+
+    KnowledgeEntity updatedKnowledge;
+    QVERIFY2(repository.updateKnowledgeEntity(knowledge.id, updatedDraft, &updatedKnowledge, &errorMessage), qPrintable(errorMessage));
+    QCOMPARE(updatedKnowledge.confidence, QStringLiteral("high"));
+    QCOMPARE(updatedKnowledge.conflictMarkers.size(), 1);
+
+    ProjectRepository reopened(tempDir.path());
+    const QVector<Project> projects = reopened.all(&errorMessage);
+    QVERIFY2(errorMessage.isEmpty(), qPrintable(errorMessage));
+    QCOMPARE(projects.size(), 1);
+    QCOMPARE(projects.front().projectState, QStringLiteral("preview-ready"));
+
+    const QVector<KnowledgeEntity> entities = reopened.listKnowledgeEntities(created.id, &errorMessage);
+    QVERIFY2(errorMessage.isEmpty(), qPrintable(errorMessage));
+    QCOMPARE(entities.size(), 1);
+    QCOMPARE(entities.front().visibility, QStringLiteral("hidden-codex"));
+    QCOMPARE(entities.front().confidence, QStringLiteral("high"));
+    QVERIFY2(entities.front().aliases.contains(QStringLiteral("Dragon affinity breakpoint")), "updated aliases should be persisted");
 }
 
 QTEST_MAIN(ProjectRepositoryTest)

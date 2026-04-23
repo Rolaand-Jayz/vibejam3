@@ -2,10 +2,20 @@ import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { BuildJob, EditorialBlueprint, PreviewPackage, ProjectManifest, ValidationReport } from '../domain/index.js';
+import type {
+  BuildJob,
+  EditorialBlueprint,
+  GuideBuildBundle,
+  KnowledgeEntity,
+  PreviewPackage,
+  ProjectManifest,
+  ValidationReport,
+} from '../domain/index.js';
 import {
   BuildJobSchema,
   EditorialBlueprintSchema,
+  GuideBuildBundleSchema,
+  KnowledgeEntitySchema,
   PreviewPackageSchema,
   ProjectManifestSchema,
   ValidationReportSchema,
@@ -56,6 +66,20 @@ interface EditorialBlueprintRow {
   updated_at: string;
 }
 
+interface GuideBuildBundleRow {
+  id: string;
+  project_id: string;
+  preview_id: string;
+  blueprint_version: number;
+  version: number;
+  validation_state: string;
+  visible_knowledge_ids: string;
+  hidden_codex_ids: string;
+  units: string;
+  generated_at: string;
+  summary: string;
+}
+
 interface PreviewPackageRow {
   id: string;
   project_id: string;
@@ -65,6 +89,24 @@ interface PreviewPackageRow {
   review_notes: string;
   approval_state: string;
   generated_at: string;
+  updated_at: string;
+}
+
+interface KnowledgeEntityRow {
+  id: string;
+  project_id: string;
+  canonical_name: string;
+  category: string;
+  visibility: string;
+  scope: string;
+  confidence: string;
+  aliases: string;
+  summary: string;
+  structured_attributes: string;
+  source_refs: string;
+  conflict_markers: string;
+  version_tags: string;
+  created_at: string;
   updated_at: string;
 }
 
@@ -150,6 +192,21 @@ export class SqliteProjectStorage implements ProjectStorage {
         FOREIGN KEY (project_id) REFERENCES project_manifests(id) ON DELETE CASCADE
       );
 
+      CREATE TABLE IF NOT EXISTS guide_build_bundles (
+        id TEXT PRIMARY KEY NOT NULL,
+        project_id TEXT NOT NULL,
+        preview_id TEXT NOT NULL,
+        blueprint_version INTEGER NOT NULL,
+        version INTEGER NOT NULL,
+        validation_state TEXT NOT NULL,
+        visible_knowledge_ids TEXT NOT NULL,
+        hidden_codex_ids TEXT NOT NULL,
+        units TEXT NOT NULL,
+        generated_at TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        FOREIGN KEY (project_id) REFERENCES project_manifests(id) ON DELETE CASCADE
+      );
+
       CREATE TABLE IF NOT EXISTS preview_packages (
         id TEXT PRIMARY KEY NOT NULL,
         project_id TEXT NOT NULL,
@@ -159,6 +216,25 @@ export class SqliteProjectStorage implements ProjectStorage {
         review_notes TEXT NOT NULL,
         approval_state TEXT NOT NULL,
         generated_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (project_id) REFERENCES project_manifests(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS knowledge_entities (
+        id TEXT PRIMARY KEY NOT NULL,
+        project_id TEXT NOT NULL,
+        canonical_name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        visibility TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        confidence TEXT NOT NULL,
+        aliases TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        structured_attributes TEXT NOT NULL,
+        source_refs TEXT NOT NULL,
+        conflict_markers TEXT NOT NULL,
+        version_tags TEXT NOT NULL,
+        created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         FOREIGN KEY (project_id) REFERENCES project_manifests(id) ON DELETE CASCADE
       );
@@ -344,6 +420,166 @@ export class SqliteProjectStorage implements ProjectStorage {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }));
+  }
+
+  listGuideBuildBundles(projectId: string): GuideBuildBundle[] {
+    const rows = this.db.prepare(`
+      SELECT * FROM guide_build_bundles WHERE project_id = ? ORDER BY version DESC, generated_at DESC
+    `).all(projectId) as GuideBuildBundleRow[];
+
+    return rows.map((row) => GuideBuildBundleSchema.parse({
+      id: row.id,
+      projectId: row.project_id,
+      previewId: row.preview_id,
+      blueprintVersion: row.blueprint_version,
+      version: row.version,
+      validationState: row.validation_state,
+      visibleKnowledgeIds: JSON.parse(row.visible_knowledge_ids) as GuideBuildBundle['visibleKnowledgeIds'],
+      hiddenCodexIds: JSON.parse(row.hidden_codex_ids) as GuideBuildBundle['hiddenCodexIds'],
+      units: JSON.parse(row.units) as GuideBuildBundle['units'],
+      generatedAt: row.generated_at,
+      summary: row.summary,
+    }));
+  }
+
+  saveGuideBuildBundle(bundle: GuideBuildBundle): GuideBuildBundle {
+    const validated = GuideBuildBundleSchema.parse(bundle);
+
+    this.db.prepare(`
+      INSERT INTO guide_build_bundles (
+        id, project_id, preview_id, blueprint_version, version, validation_state,
+        visible_knowledge_ids, hidden_codex_ids, units, generated_at, summary
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        project_id = excluded.project_id,
+        preview_id = excluded.preview_id,
+        blueprint_version = excluded.blueprint_version,
+        version = excluded.version,
+        validation_state = excluded.validation_state,
+        visible_knowledge_ids = excluded.visible_knowledge_ids,
+        hidden_codex_ids = excluded.hidden_codex_ids,
+        units = excluded.units,
+        generated_at = excluded.generated_at,
+        summary = excluded.summary
+    `).run(
+      validated.id,
+      validated.projectId,
+      validated.previewId,
+      validated.blueprintVersion,
+      validated.version,
+      validated.validationState,
+      JSON.stringify(validated.visibleKnowledgeIds),
+      JSON.stringify(validated.hiddenCodexIds),
+      JSON.stringify(validated.units),
+      validated.generatedAt,
+      validated.summary,
+    );
+
+    return validated;
+  }
+
+  createKnowledgeEntity(input: Omit<KnowledgeEntity, 'id' | 'createdAt' | 'updatedAt'>): KnowledgeEntity {
+    const now = new Date().toISOString();
+    const entity = KnowledgeEntitySchema.parse({
+      ...input,
+      id: randomUUID(),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    this.db.prepare(`
+      INSERT INTO knowledge_entities (
+        id, project_id, canonical_name, category, visibility, scope, confidence, aliases,
+        summary, structured_attributes, source_refs, conflict_markers, version_tags, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      entity.id,
+      entity.projectId,
+      entity.canonicalName,
+      entity.category,
+      entity.visibility,
+      entity.scope,
+      entity.confidence,
+      JSON.stringify(entity.aliases),
+      entity.summary,
+      JSON.stringify(entity.structuredAttributes),
+      JSON.stringify(entity.sourceRefs),
+      JSON.stringify(entity.conflictMarkers),
+      JSON.stringify(entity.versionTags),
+      entity.createdAt,
+      entity.updatedAt,
+    );
+
+    return entity;
+  }
+
+  getKnowledgeEntity(id: string): KnowledgeEntity | null {
+    const row = this.db.prepare(`
+      SELECT * FROM knowledge_entities WHERE id = ?
+    `).get(id) as KnowledgeEntityRow | undefined;
+
+    if (!row) {
+      return null;
+    }
+
+    return this.rowToKnowledgeEntity(row);
+  }
+
+  updateKnowledgeEntity(id: string, patch: Partial<KnowledgeEntity>): KnowledgeEntity | null {
+    const existing = this.getKnowledgeEntity(id);
+    if (!existing) {
+      return null;
+    }
+
+    const updated = KnowledgeEntitySchema.parse({
+      ...existing,
+      ...patch,
+      id: existing.id,
+      projectId: existing.projectId,
+      createdAt: existing.createdAt,
+      updatedAt: patch.updatedAt ?? new Date().toISOString(),
+    });
+
+    this.db.prepare(`
+      UPDATE knowledge_entities SET
+        canonical_name = ?,
+        category = ?,
+        visibility = ?,
+        scope = ?,
+        confidence = ?,
+        aliases = ?,
+        summary = ?,
+        structured_attributes = ?,
+        source_refs = ?,
+        conflict_markers = ?,
+        version_tags = ?,
+        updated_at = ?
+      WHERE id = ?
+    `).run(
+      updated.canonicalName,
+      updated.category,
+      updated.visibility,
+      updated.scope,
+      updated.confidence,
+      JSON.stringify(updated.aliases),
+      updated.summary,
+      JSON.stringify(updated.structuredAttributes),
+      JSON.stringify(updated.sourceRefs),
+      JSON.stringify(updated.conflictMarkers),
+      JSON.stringify(updated.versionTags),
+      updated.updatedAt,
+      updated.id,
+    );
+
+    return updated;
+  }
+
+  listKnowledgeEntities(projectId: string): KnowledgeEntity[] {
+    const rows = this.db.prepare(`
+      SELECT * FROM knowledge_entities WHERE project_id = ? ORDER BY updated_at DESC
+    `).all(projectId) as KnowledgeEntityRow[];
+
+    return rows.map((row) => this.rowToKnowledgeEntity(row));
   }
 
   createPreview(input: Omit<PreviewPackage, 'id' | 'generatedAt' | 'updatedAt'>): PreviewPackage {
@@ -571,6 +807,26 @@ export class SqliteProjectStorage implements ProjectStorage {
       templateVersion: row.template_version ?? '0.1.0',
       sharedThemeCss: row.shared_theme_css ?? '',
       createdAt: row.created_at,
+    });
+  }
+
+  private rowToKnowledgeEntity(row: KnowledgeEntityRow): KnowledgeEntity {
+    return KnowledgeEntitySchema.parse({
+      id: row.id,
+      projectId: row.project_id,
+      canonicalName: row.canonical_name,
+      category: row.category,
+      visibility: row.visibility,
+      scope: row.scope,
+      confidence: row.confidence,
+      aliases: JSON.parse(row.aliases) as KnowledgeEntity['aliases'],
+      summary: row.summary,
+      structuredAttributes: JSON.parse(row.structured_attributes) as KnowledgeEntity['structuredAttributes'],
+      sourceRefs: JSON.parse(row.source_refs) as KnowledgeEntity['sourceRefs'],
+      conflictMarkers: JSON.parse(row.conflict_markers) as KnowledgeEntity['conflictMarkers'],
+      versionTags: JSON.parse(row.version_tags) as KnowledgeEntity['versionTags'],
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
     });
   }
 

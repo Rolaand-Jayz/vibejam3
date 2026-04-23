@@ -457,7 +457,10 @@ select option {
 .theme-preview-card,
 .css-guide,
 .blueprint-summary,
-.preview-summary {
+.preview-summary,
+.knowledge-summary,
+.knowledge-editor-panel,
+.knowledge-browser-panel {
   padding: 18px;
   border-radius: 18px;
   border: 1px solid var(--field-border);
@@ -495,9 +498,90 @@ select option {
   gap: 16px;
 }
 
-.preview-summary {
+.preview-summary,
+.knowledge-summary {
   display: grid;
   gap: 16px;
+}
+
+.knowledge-editor-column {
+  gap: 20px;
+}
+
+.knowledge-workbench {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.95fr);
+  align-items: start;
+}
+
+.knowledge-editor-panel,
+.knowledge-browser-panel,
+.knowledge-subpanel {
+  display: grid;
+  gap: 14px;
+}
+
+.knowledge-form-grid,
+.knowledge-meta-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.knowledge-form-grid label,
+.knowledge-subpanel label {
+  display: grid;
+  gap: 8px;
+}
+
+.knowledge-summary-editor textarea,
+.knowledge-subpanel textarea,
+.knowledge-form-grid textarea,
+.knowledge-meta-grid textarea {
+  min-height: 130px;
+}
+
+.knowledge-entry-list,
+.knowledge-card-list {
+  display: grid;
+  gap: 12px;
+}
+
+.knowledge-entry-card,
+.knowledge-card {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid var(--field-border);
+  background: rgba(20, 24, 28, 0.88);
+  color: var(--text-primary);
+}
+
+.knowledge-entry-card {
+  cursor: pointer;
+}
+
+.knowledge-entry-card.selected {
+  border-color: rgba(198, 156, 109, 0.55);
+  background: rgba(35, 29, 24, 0.88);
+}
+
+.knowledge-entry-card p,
+.knowledge-card p {
+  margin: 0;
+}
+
+.knowledge-card-summary {
+  color: var(--text-secondary);
+}
+
+.knowledge-card-proof {
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }
 
 .blueprint-summary h3,
@@ -647,6 +731,9 @@ select option {
   .hero-card,
   .workspace-grid,
   .form-grid,
+  .knowledge-workbench,
+  .knowledge-form-grid,
+  .knowledge-meta-grid,
   .blueprint-text-grid,
   .blueprint-notes-grid {
     grid-template-columns: 1fr;

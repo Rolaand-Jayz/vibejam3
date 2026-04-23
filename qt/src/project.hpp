@@ -307,6 +307,262 @@ struct EditorialBlueprint {
     }
 };
 
+struct KnowledgeAttribute {
+    QString key;
+    QString value;
+
+    [[nodiscard]] QJsonObject toJson() const
+    {
+        return QJsonObject {
+            { QStringLiteral("key"), key },
+            { QStringLiteral("value"), value },
+        };
+    }
+
+    [[nodiscard]] static KnowledgeAttribute fromJson(const QJsonObject &object)
+    {
+        return KnowledgeAttribute {
+            .key = object.value(QStringLiteral("key")).toString(),
+            .value = object.value(QStringLiteral("value")).toString(),
+        };
+    }
+};
+
+struct SourceReference {
+    QString id;
+    QString sourceType;
+    QString sourceTitle;
+    QString sourceUri;
+    QString excerpt;
+    QString retrievalDate;
+    QString trustClassification;
+
+    [[nodiscard]] QJsonObject toJson() const
+    {
+        return QJsonObject {
+            { QStringLiteral("id"), id },
+            { QStringLiteral("sourceType"), sourceType },
+            { QStringLiteral("sourceTitle"), sourceTitle },
+            { QStringLiteral("sourceUri"), sourceUri },
+            { QStringLiteral("excerpt"), excerpt },
+            { QStringLiteral("retrievalDate"), retrievalDate },
+            { QStringLiteral("trustClassification"), trustClassification },
+        };
+    }
+
+    [[nodiscard]] static SourceReference fromJson(const QJsonObject &object)
+    {
+        return SourceReference {
+            .id = object.value(QStringLiteral("id")).toString(),
+            .sourceType = object.value(QStringLiteral("sourceType")).toString(),
+            .sourceTitle = object.value(QStringLiteral("sourceTitle")).toString(),
+            .sourceUri = object.value(QStringLiteral("sourceUri")).toString(),
+            .excerpt = object.value(QStringLiteral("excerpt")).toString(),
+            .retrievalDate = object.value(QStringLiteral("retrievalDate")).toString(),
+            .trustClassification = object.value(QStringLiteral("trustClassification")).toString(),
+        };
+    }
+};
+
+struct ConflictRecord {
+    QString id;
+    QString conflictSummary;
+    QString conflictType;
+    QString severity;
+    QString resolutionStatus;
+    QString recommendedHandling;
+
+    [[nodiscard]] QJsonObject toJson() const
+    {
+        return QJsonObject {
+            { QStringLiteral("id"), id },
+            { QStringLiteral("conflictSummary"), conflictSummary },
+            { QStringLiteral("conflictType"), conflictType },
+            { QStringLiteral("severity"), severity },
+            { QStringLiteral("resolutionStatus"), resolutionStatus },
+            { QStringLiteral("recommendedHandling"), recommendedHandling },
+        };
+    }
+
+    [[nodiscard]] static ConflictRecord fromJson(const QJsonObject &object)
+    {
+        return ConflictRecord {
+            .id = object.value(QStringLiteral("id")).toString(),
+            .conflictSummary = object.value(QStringLiteral("conflictSummary")).toString(),
+            .conflictType = object.value(QStringLiteral("conflictType")).toString(),
+            .severity = object.value(QStringLiteral("severity")).toString(),
+            .resolutionStatus = object.value(QStringLiteral("resolutionStatus")).toString(),
+            .recommendedHandling = object.value(QStringLiteral("recommendedHandling")).toString(),
+        };
+    }
+};
+
+struct KnowledgeEntityDraft {
+    QString canonicalName;
+    QString category;
+    QString visibility;
+    QString scope;
+    QString confidence;
+    QStringList aliases;
+    QString summary;
+    QVector<KnowledgeAttribute> structuredAttributes;
+    QVector<SourceReference> sourceRefs;
+    QVector<ConflictRecord> conflictMarkers;
+    QStringList versionTags;
+};
+
+struct KnowledgeEntity {
+    QString id;
+    QString projectId;
+    QString canonicalName;
+    QString category;
+    QString visibility;
+    QString scope;
+    QString confidence;
+    QStringList aliases;
+    QString summary;
+    QVector<KnowledgeAttribute> structuredAttributes;
+    QVector<SourceReference> sourceRefs;
+    QVector<ConflictRecord> conflictMarkers;
+    QStringList versionTags;
+    QString createdAt;
+    QString updatedAt;
+
+    [[nodiscard]] QString visibilityLabel() const
+    {
+        return visibility.trimmed() == QStringLiteral("hidden-codex")
+            ? QStringLiteral("Hidden codex")
+            : QStringLiteral("Visible guide");
+    }
+
+    [[nodiscard]] QString summaryLine() const
+    {
+        return QStringLiteral("%1 • %2 source%3 • %4 conflict%5 • %6")
+            .arg(visibilityLabel())
+            .arg(sourceRefs.size())
+            .arg(sourceRefs.size() == 1 ? QString() : QStringLiteral("s"))
+            .arg(conflictMarkers.size())
+            .arg(conflictMarkers.size() == 1 ? QString() : QStringLiteral("s"))
+            .arg(confidence.trimmed().isEmpty() ? QStringLiteral("medium") : confidence.trimmed());
+    }
+
+    [[nodiscard]] QString sourceTitleSummary() const
+    {
+        QStringList titles;
+        titles.reserve(sourceRefs.size());
+        for (const SourceReference &sourceRef : sourceRefs) {
+            titles.push_back(sourceRef.sourceTitle.trimmed());
+        }
+
+        return titles.isEmpty() ? QStringLiteral("No source references") : titles.join(QStringLiteral(" • "));
+    }
+
+    [[nodiscard]] KnowledgeEntityDraft toDraft() const
+    {
+        return KnowledgeEntityDraft {
+            .canonicalName = canonicalName,
+            .category = category,
+            .visibility = visibility,
+            .scope = scope,
+            .confidence = confidence,
+            .aliases = aliases,
+            .summary = summary,
+            .structuredAttributes = structuredAttributes,
+            .sourceRefs = sourceRefs,
+            .conflictMarkers = conflictMarkers,
+            .versionTags = versionTags,
+        };
+    }
+
+    [[nodiscard]] QJsonObject toJson() const
+    {
+        QJsonArray attributeArray;
+        for (const KnowledgeAttribute &attribute : structuredAttributes) {
+            attributeArray.push_back(attribute.toJson());
+        }
+
+        QJsonArray sourceArray;
+        for (const SourceReference &sourceRef : sourceRefs) {
+            sourceArray.push_back(sourceRef.toJson());
+        }
+
+        QJsonArray conflictArray;
+        for (const ConflictRecord &conflict : conflictMarkers) {
+            conflictArray.push_back(conflict.toJson());
+        }
+
+        QJsonArray aliasArray;
+        for (const QString &alias : aliases) {
+            aliasArray.push_back(alias);
+        }
+
+        QJsonArray versionTagArray;
+        for (const QString &versionTag : versionTags) {
+            versionTagArray.push_back(versionTag);
+        }
+
+        return QJsonObject {
+            { QStringLiteral("id"), id },
+            { QStringLiteral("projectId"), projectId },
+            { QStringLiteral("canonicalName"), canonicalName },
+            { QStringLiteral("category"), category },
+            { QStringLiteral("visibility"), visibility },
+            { QStringLiteral("scope"), scope },
+            { QStringLiteral("confidence"), confidence },
+            { QStringLiteral("aliases"), aliasArray },
+            { QStringLiteral("summary"), summary },
+            { QStringLiteral("structuredAttributes"), attributeArray },
+            { QStringLiteral("sourceRefs"), sourceArray },
+            { QStringLiteral("conflictMarkers"), conflictArray },
+            { QStringLiteral("versionTags"), versionTagArray },
+            { QStringLiteral("createdAt"), createdAt },
+            { QStringLiteral("updatedAt"), updatedAt },
+        };
+    }
+
+    [[nodiscard]] static KnowledgeEntity fromJson(const QJsonObject &object)
+    {
+        KnowledgeEntity entity;
+        entity.id = object.value(QStringLiteral("id")).toString();
+        entity.projectId = object.value(QStringLiteral("projectId")).toString();
+        entity.canonicalName = object.value(QStringLiteral("canonicalName")).toString();
+        entity.category = object.value(QStringLiteral("category")).toString();
+        entity.visibility = object.value(QStringLiteral("visibility")).toString();
+        entity.scope = object.value(QStringLiteral("scope")).toString();
+        entity.confidence = object.value(QStringLiteral("confidence")).toString();
+        entity.summary = object.value(QStringLiteral("summary")).toString();
+        entity.createdAt = object.value(QStringLiteral("createdAt")).toString();
+        entity.updatedAt = object.value(QStringLiteral("updatedAt")).toString(entity.createdAt);
+
+        const QJsonArray aliasArray = object.value(QStringLiteral("aliases")).toArray();
+        for (const QJsonValue &value : aliasArray) {
+            entity.aliases.push_back(value.toString());
+        }
+
+        const QJsonArray attributeArray = object.value(QStringLiteral("structuredAttributes")).toArray();
+        for (const QJsonValue &value : attributeArray) {
+            entity.structuredAttributes.push_back(KnowledgeAttribute::fromJson(value.toObject()));
+        }
+
+        const QJsonArray sourceArray = object.value(QStringLiteral("sourceRefs")).toArray();
+        for (const QJsonValue &value : sourceArray) {
+            entity.sourceRefs.push_back(SourceReference::fromJson(value.toObject()));
+        }
+
+        const QJsonArray conflictArray = object.value(QStringLiteral("conflictMarkers")).toArray();
+        for (const QJsonValue &value : conflictArray) {
+            entity.conflictMarkers.push_back(ConflictRecord::fromJson(value.toObject()));
+        }
+
+        const QJsonArray versionTagArray = object.value(QStringLiteral("versionTags")).toArray();
+        for (const QJsonValue &value : versionTagArray) {
+            entity.versionTags.push_back(value.toString());
+        }
+
+        return entity;
+    }
+};
+
 struct PreviewSampleSection {
     QString title;
     QString kind;
@@ -408,6 +664,170 @@ struct PreviewPackage {
         preview.generatedAt = object.value(QStringLiteral("generatedAt")).toString();
         preview.updatedAt = object.value(QStringLiteral("updatedAt")).toString(preview.generatedAt);
         return preview;
+    }
+};
+
+struct GuideBuildUnit {
+    QString id;
+    QString title;
+    QString kind;
+    QString purpose;
+    QString body;
+    QStringList sourceKnowledgeIds;
+    QStringList blockingFindings;
+    QStringList warningFindings;
+
+    [[nodiscard]] QJsonObject toJson() const
+    {
+        QJsonArray sourceKnowledgeArray;
+        for (const QString &sourceKnowledgeId : sourceKnowledgeIds) {
+            sourceKnowledgeArray.push_back(sourceKnowledgeId);
+        }
+
+        QJsonArray blockingArray;
+        for (const QString &finding : blockingFindings) {
+            blockingArray.push_back(finding);
+        }
+
+        QJsonArray warningArray;
+        for (const QString &finding : warningFindings) {
+            warningArray.push_back(finding);
+        }
+
+        return QJsonObject {
+            { QStringLiteral("id"), id },
+            { QStringLiteral("title"), title },
+            { QStringLiteral("kind"), kind },
+            { QStringLiteral("purpose"), purpose },
+            { QStringLiteral("body"), body },
+            { QStringLiteral("sourceKnowledgeIds"), sourceKnowledgeArray },
+            { QStringLiteral("blockingFindings"), blockingArray },
+            { QStringLiteral("warningFindings"), warningArray },
+        };
+    }
+
+    [[nodiscard]] static GuideBuildUnit fromJson(const QJsonObject &object)
+    {
+        GuideBuildUnit unit;
+        unit.id = object.value(QStringLiteral("id")).toString();
+        unit.title = object.value(QStringLiteral("title")).toString();
+        unit.kind = object.value(QStringLiteral("kind")).toString();
+        unit.purpose = object.value(QStringLiteral("purpose")).toString();
+        unit.body = object.value(QStringLiteral("body")).toString();
+
+        const QJsonArray sourceKnowledgeArray = object.value(QStringLiteral("sourceKnowledgeIds")).toArray();
+        for (const QJsonValue &value : sourceKnowledgeArray) {
+            unit.sourceKnowledgeIds.push_back(value.toString());
+        }
+
+        const QJsonArray blockingArray = object.value(QStringLiteral("blockingFindings")).toArray();
+        for (const QJsonValue &value : blockingArray) {
+            unit.blockingFindings.push_back(value.toString());
+        }
+
+        const QJsonArray warningArray = object.value(QStringLiteral("warningFindings")).toArray();
+        for (const QJsonValue &value : warningArray) {
+            unit.warningFindings.push_back(value.toString());
+        }
+
+        return unit;
+    }
+};
+
+struct GuideBuildBundle {
+    QString id;
+    QString projectId;
+    QString previewId;
+    int blueprintVersion = 1;
+    int version = 1;
+    QString validationState;
+    QStringList visibleKnowledgeIds;
+    QStringList hiddenCodexIds;
+    QVector<GuideBuildUnit> units;
+    QString generatedAt;
+    QString summary;
+
+    [[nodiscard]] QString summaryLine() const
+    {
+        return QStringLiteral("v%1 • blueprint v%2 • %3 unit%4 • %5")
+            .arg(version)
+            .arg(blueprintVersion)
+            .arg(units.size())
+            .arg(units.size() == 1 ? QString() : QStringLiteral("s"))
+            .arg(validationState.trimmed().isEmpty() ? QStringLiteral("freeze-pending") : validationState.trimmed());
+    }
+
+    [[nodiscard]] QString unitTitleSummary() const
+    {
+        QStringList titles;
+        titles.reserve(units.size());
+        for (const GuideBuildUnit &unit : units) {
+            titles.push_back(unit.title.trimmed());
+        }
+
+        return titles.isEmpty() ? QStringLiteral("No build units") : titles.join(QStringLiteral(" • "));
+    }
+
+    [[nodiscard]] QJsonObject toJson() const
+    {
+        QJsonArray visibleKnowledgeArray;
+        for (const QString &knowledgeId : visibleKnowledgeIds) {
+            visibleKnowledgeArray.push_back(knowledgeId);
+        }
+
+        QJsonArray hiddenCodexArray;
+        for (const QString &knowledgeId : hiddenCodexIds) {
+            hiddenCodexArray.push_back(knowledgeId);
+        }
+
+        QJsonArray unitsArray;
+        for (const GuideBuildUnit &unit : units) {
+            unitsArray.push_back(unit.toJson());
+        }
+
+        return QJsonObject {
+            { QStringLiteral("id"), id },
+            { QStringLiteral("projectId"), projectId },
+            { QStringLiteral("previewId"), previewId },
+            { QStringLiteral("blueprintVersion"), blueprintVersion },
+            { QStringLiteral("version"), version },
+            { QStringLiteral("validationState"), validationState },
+            { QStringLiteral("visibleKnowledgeIds"), visibleKnowledgeArray },
+            { QStringLiteral("hiddenCodexIds"), hiddenCodexArray },
+            { QStringLiteral("units"), unitsArray },
+            { QStringLiteral("generatedAt"), generatedAt },
+            { QStringLiteral("summary"), summary },
+        };
+    }
+
+    [[nodiscard]] static GuideBuildBundle fromJson(const QJsonObject &object)
+    {
+        GuideBuildBundle bundle;
+        bundle.id = object.value(QStringLiteral("id")).toString();
+        bundle.projectId = object.value(QStringLiteral("projectId")).toString();
+        bundle.previewId = object.value(QStringLiteral("previewId")).toString();
+        bundle.blueprintVersion = object.value(QStringLiteral("blueprintVersion")).toInt(1);
+        bundle.version = object.value(QStringLiteral("version")).toInt(1);
+        bundle.validationState = object.value(QStringLiteral("validationState")).toString(QStringLiteral("freeze-pending"));
+        bundle.generatedAt = object.value(QStringLiteral("generatedAt")).toString();
+        bundle.summary = object.value(QStringLiteral("summary")).toString();
+
+        const QJsonArray visibleKnowledgeArray = object.value(QStringLiteral("visibleKnowledgeIds")).toArray();
+        for (const QJsonValue &value : visibleKnowledgeArray) {
+            bundle.visibleKnowledgeIds.push_back(value.toString());
+        }
+
+        const QJsonArray hiddenCodexArray = object.value(QStringLiteral("hiddenCodexIds")).toArray();
+        for (const QJsonValue &value : hiddenCodexArray) {
+            bundle.hiddenCodexIds.push_back(value.toString());
+        }
+
+        const QJsonArray unitsArray = object.value(QStringLiteral("units")).toArray();
+        for (const QJsonValue &value : unitsArray) {
+            bundle.units.push_back(GuideBuildUnit::fromJson(value.toObject()));
+        }
+
+        return bundle;
     }
 };
 

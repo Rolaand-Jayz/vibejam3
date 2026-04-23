@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { EditorialBlueprint, PreviewPackage, ProjectManifest } from './domain/index.js';
+import type {
+  ConflictRecord,
+  EditorialBlueprint,
+  GuideBuildBundle,
+  KnowledgeEntity,
+  PreviewPackage,
+  ProjectManifest,
+  SourceReference,
+} from './domain/index.js';
 import { ProjectService } from './orchestration/index.js';
 import { LocalStorageProjectStorage } from './storage/index.js';
 import {
@@ -7,10 +15,18 @@ import {
   formatChapterPlanText,
   parseChapterPlanText,
 } from './validation/editorial-blueprint.js';
+import {
+  formatKnowledgeAttributeText,
+  formatKnowledgeListText,
+  knowledgeEntitySummary,
+  parseKnowledgeAttributeText,
+  parseKnowledgeListText,
+} from './validation/knowledge-entity.js';
 import { unresolvedFields } from './validation/intake-validation.js';
 
-type CenterMode = 'detail' | 'form' | 'blueprint';
+type CenterMode = 'detail' | 'form' | 'blueprint' | 'knowledge';
 type FormMode = 'create' | 'edit';
+type KnowledgeFormMode = 'create' | 'edit';
 
 type ProjectFormState = {
   gameTitle: string;
@@ -31,6 +47,30 @@ type BlueprintFormState = {
   checklistPlan: string;
   visualPackIntent: string;
   spoilerGuardrails: string;
+};
+
+type KnowledgeFormState = {
+  knowledgeId: string | null;
+  mode: KnowledgeFormMode;
+  canonicalName: string;
+  category: KnowledgeEntity['category'];
+  visibility: KnowledgeEntity['visibility'];
+  scope: KnowledgeEntity['scope'];
+  confidence: KnowledgeEntity['confidence'];
+  aliasesText: string;
+  summary: string;
+  attributesText: string;
+  versionTagsText: string;
+  sourceType: string;
+  sourceTitle: string;
+  sourceUri: string;
+  sourceExcerpt: string;
+  sourceTrustClassification: SourceReference['trustClassification'];
+  conflictSummary: string;
+  conflictType: string;
+  conflictSeverity: ConflictRecord['severity'];
+  conflictResolutionStatus: ConflictRecord['resolutionStatus'];
+  recommendedHandling: string;
 };
 
 const storage = new LocalStorageProjectStorage();
@@ -83,6 +123,66 @@ function createDefaultBlueprintFormState(
   };
 }
 
+function createDefaultKnowledgeFormState(
+  project: ProjectManifest,
+  knowledgeEntity: KnowledgeEntity | null,
+): KnowledgeFormState {
+  if (knowledgeEntity) {
+    const primarySource = knowledgeEntity.sourceRefs[0];
+    const primaryConflict = knowledgeEntity.conflictMarkers[0];
+
+    return {
+      knowledgeId: knowledgeEntity.id,
+      mode: 'edit',
+      canonicalName: knowledgeEntity.canonicalName,
+      category: knowledgeEntity.category,
+      visibility: knowledgeEntity.visibility,
+      scope: knowledgeEntity.scope,
+      confidence: knowledgeEntity.confidence,
+      aliasesText: formatKnowledgeListText(knowledgeEntity.aliases),
+      summary: knowledgeEntity.summary,
+      attributesText: formatKnowledgeAttributeText(knowledgeEntity.structuredAttributes),
+      versionTagsText: formatKnowledgeListText(knowledgeEntity.versionTags),
+      sourceType: primarySource?.sourceType ?? 'manual-entry',
+      sourceTitle: primarySource?.sourceTitle ?? '',
+      sourceUri: primarySource?.sourceUri ?? '',
+      sourceExcerpt: primarySource?.excerpt ?? '',
+      sourceTrustClassification: primarySource?.trustClassification ?? 'working-notes',
+      conflictSummary: primaryConflict?.conflictSummary ?? '',
+      conflictType: primaryConflict?.conflictType ?? '',
+      conflictSeverity: primaryConflict?.severity ?? 'warning',
+      conflictResolutionStatus: primaryConflict?.resolutionStatus ?? 'open',
+      recommendedHandling: primaryConflict?.recommendedHandling ?? '',
+    };
+  }
+
+  const playerGoal = project.playerGoal.trim() || 'the intended route';
+
+  return {
+    knowledgeId: null,
+    mode: 'create',
+    canonicalName: '',
+    category: 'route-note',
+    visibility: 'visible-guide',
+    scope: project.playerGoal.trim() ? 'run-specific' : 'broad',
+    confidence: 'medium',
+    aliasesText: '',
+    summary: `Capture a trustworthy fact the guide should preserve for ${playerGoal}.`,
+    attributesText: ['Route role :: What this fact changes in the guide', 'Verification need :: What source proof supports it'].join('\n'),
+    versionTagsText: project.platform.trim() ? project.platform.trim() : '',
+    sourceType: 'manual-entry',
+    sourceTitle: `${project.gameTitle} notes`,
+    sourceUri: '',
+    sourceExcerpt: '',
+    sourceTrustClassification: 'working-notes',
+    conflictSummary: '',
+    conflictType: '',
+    conflictSeverity: 'warning',
+    conflictResolutionStatus: 'open',
+    recommendedHandling: '',
+  };
+}
+
 function formatDate(value: string): string {
   return new Date(value).toLocaleString();
 }
@@ -123,8 +223,34 @@ function previewSectionKindLabel(section: PreviewPackage['sampleSections'][numbe
   return section.kind.replace(/-/g, ' ');
 }
 
+function buildUnitKindLabel(unit: GuideBuildBundle['units'][number]): string {
+  return unit.kind.replace(/-/g, ' ');
+}
+
+function knowledgeVisibilityLabel(visibility: KnowledgeEntity['visibility']): string {
+  return visibility === 'hidden-codex' ? 'Hidden codex' : 'Visible guide';
+}
+
+function knowledgeCoverageSummary(knowledgeEntities: KnowledgeEntity[]): string {
+  if (knowledgeEntities.length === 0) {
+    return 'No structured knowledge recorded yet.';
+  }
+
+  const visibleCount = knowledgeEntities.filter((entity) => entity.visibility === 'visible-guide').length;
+  const hiddenCount = knowledgeEntities.length - visibleCount;
+  return `${knowledgeEntities.length} structured fact${knowledgeEntities.length === 1 ? '' : 's'} • ${visibleCount} visible • ${hiddenCount} hidden codex`;
+}
+
 function statusClass(status: string): string {
   return `status-${status.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+}
+
+function describeFullBuild(latestBuildBundle: GuideBuildBundle | null): string {
+  if (!latestBuildBundle) {
+    return 'No full build bundle generated yet.';
+  }
+
+  return latestBuildBundle.summary;
 }
 
 export default function App() {
@@ -134,6 +260,7 @@ export default function App() {
   const [formMode, setFormMode] = useState<FormMode>('create');
   const [formState, setFormState] = useState<ProjectFormState>(createDefaultFormState);
   const [blueprintFormState, setBlueprintFormState] = useState<BlueprintFormState | null>(null);
+  const [knowledgeFormState, setKnowledgeFormState] = useState<KnowledgeFormState | null>(null);
   const [previewReviewNotes, setPreviewReviewNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -164,9 +291,12 @@ export default function App() {
   }, [projects, selectedId]);
 
   const selectedBlueprints = selectedProject ? service.listBlueprints(selectedProject.id) : [];
+  const selectedKnowledgeEntities = selectedProject ? service.listKnowledgeEntities(selectedProject.id) : [];
   const latestBlueprint = selectedBlueprints[0] ?? null;
   const selectedPreviews = selectedProject ? service.listPreviewPackages(selectedProject.id) : [];
   const latestPreview = selectedPreviews[0] ?? null;
+  const selectedBuildBundles = selectedProject ? service.listGuideBuildBundles(selectedProject.id) : [];
+  const latestBuildBundle = selectedBuildBundles[0] ?? null;
   const selectedJobs = selectedProject ? service.listJobs(selectedProject.id) : [];
   const selectedReports = selectedProject ? service.listValidationReports(selectedProject.id) : [];
   const latestJob = selectedJobs[0] ?? null;
@@ -175,9 +305,15 @@ export default function App() {
   const validationSummary = latestReport?.summary ?? 'No intake validation has been recorded yet.';
   const lastChecked = latestJob?.endedAt ?? latestReport?.createdAt ?? 'Not yet';
   const activeThemeCss = centerMode === 'form' ? formState.sharedThemeCss : selectedProject?.sharedThemeCss ?? '';
+  const visibleKnowledgeCount = selectedKnowledgeEntities.filter((entity) => entity.visibility === 'visible-guide').length;
+  const hiddenKnowledgeCount = selectedKnowledgeEntities.length - visibleKnowledgeCount;
   const previewMatchesLatestBlueprint = latestPreview != null && latestBlueprint != null
     ? latestPreview.blueprintVersion === latestBlueprint.version
     : false;
+  const fullBuildReady = latestBlueprint != null
+    && latestPreview != null
+    && previewMatchesLatestBlueprint
+    && latestPreview.approvalState === 'approved';
 
   useEffect(() => {
     setPreviewReviewNotes(latestPreview?.reviewNotes ?? '');
@@ -204,6 +340,15 @@ export default function App() {
 
   const updateBlueprintField = <K extends keyof BlueprintFormState>(field: K, value: BlueprintFormState[K]) => {
     setBlueprintFormState((current) => (current
+      ? {
+          ...current,
+          [field]: value,
+        }
+      : current));
+  };
+
+  const updateKnowledgeField = <K extends keyof KnowledgeFormState>(field: K, value: KnowledgeFormState[K]) => {
+    setKnowledgeFormState((current) => (current
       ? {
           ...current,
           [field]: value,
@@ -259,6 +404,17 @@ export default function App() {
     setNotice(null);
     setBlueprintFormState(createDefaultBlueprintFormState(selectedProject, latestBlueprint));
     setCenterMode('blueprint');
+  };
+
+  const startKnowledgeWorkbench = (knowledgeEntity?: KnowledgeEntity | null) => {
+    if (!selectedProject) {
+      return;
+    }
+
+    setError(null);
+    setNotice(null);
+    setKnowledgeFormState(createDefaultKnowledgeFormState(selectedProject, knowledgeEntity ?? null));
+    setCenterMode('knowledge');
   };
 
   const handleSaveProject = () => {
@@ -385,6 +541,113 @@ export default function App() {
     setNotice(`Saved blueprint v${result.data.version} for ${selectedProject.gameTitle}.`);
   };
 
+  const handleSaveKnowledge = () => {
+    if (!selectedProject || !knowledgeFormState) {
+      setError('Select a project before editing the knowledge base.');
+      return;
+    }
+
+    setError(null);
+    setNotice(null);
+
+    if (!knowledgeFormState.canonicalName.trim()) {
+      setError('Knowledge entry name is required.');
+      return;
+    }
+
+    if (!knowledgeFormState.summary.trim()) {
+      setError('Knowledge summary is required.');
+      return;
+    }
+
+    const attributeResult = parseKnowledgeAttributeText(knowledgeFormState.attributesText);
+    if (!attributeResult.ok) {
+      setError(attributeResult.error);
+      return;
+    }
+
+    const hasSourceDetails = [
+      knowledgeFormState.sourceType,
+      knowledgeFormState.sourceTitle,
+      knowledgeFormState.sourceUri,
+      knowledgeFormState.sourceExcerpt,
+    ].some((value) => value.trim().length > 0);
+
+    if (hasSourceDetails && (!knowledgeFormState.sourceType.trim() || !knowledgeFormState.sourceTitle.trim() || !knowledgeFormState.sourceExcerpt.trim())) {
+      setError('Source type, source title, and source excerpt are required when a provenance note is recorded.');
+      return;
+    }
+
+    if (!hasSourceDetails && selectedProject.policyProfile.requireProvenance) {
+      setError('At least one provenance note is required for each knowledge entry.');
+      return;
+    }
+
+    const hasConflictDetails = [
+      knowledgeFormState.conflictSummary,
+      knowledgeFormState.conflictType,
+      knowledgeFormState.recommendedHandling,
+    ].some((value) => value.trim().length > 0);
+
+    if (hasConflictDetails && (!knowledgeFormState.conflictSummary.trim() || !knowledgeFormState.conflictType.trim() || !knowledgeFormState.recommendedHandling.trim())) {
+      setError('Conflict summary, conflict type, and recommended handling must all be filled in together.');
+      return;
+    }
+
+    const sourceRefs = hasSourceDetails
+      ? [{
+          sourceType: knowledgeFormState.sourceType.trim(),
+          sourceTitle: knowledgeFormState.sourceTitle.trim(),
+          sourceUri: knowledgeFormState.sourceUri.trim(),
+          excerpt: knowledgeFormState.sourceExcerpt.trim(),
+          retrievalDate: new Date().toISOString(),
+          trustClassification: knowledgeFormState.sourceTrustClassification,
+        }]
+      : [];
+
+    const conflictMarkers = hasConflictDetails
+      ? [{
+          conflictSummary: knowledgeFormState.conflictSummary.trim(),
+          conflictType: knowledgeFormState.conflictType.trim(),
+          severity: knowledgeFormState.conflictSeverity,
+          resolutionStatus: knowledgeFormState.conflictResolutionStatus,
+          recommendedHandling: knowledgeFormState.recommendedHandling.trim(),
+        }]
+      : [];
+
+    const knowledgeInput = {
+      canonicalName: knowledgeFormState.canonicalName.trim(),
+      category: knowledgeFormState.category,
+      visibility: knowledgeFormState.visibility,
+      scope: knowledgeFormState.scope,
+      confidence: knowledgeFormState.confidence,
+      aliases: parseKnowledgeListText(knowledgeFormState.aliasesText),
+      summary: knowledgeFormState.summary.trim(),
+      structuredAttributes: attributeResult.data,
+      sourceRefs,
+      conflictMarkers,
+      versionTags: parseKnowledgeListText(knowledgeFormState.versionTagsText),
+    };
+
+    const result = knowledgeFormState.mode === 'edit' && knowledgeFormState.knowledgeId
+      ? service.updateKnowledgeEntity(knowledgeFormState.knowledgeId, knowledgeInput)
+      : service.createKnowledgeEntity(selectedProject.id, knowledgeInput);
+
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+
+    refreshProjects(selectedProject.id);
+    setKnowledgeFormState(createDefaultKnowledgeFormState(selectedProject, result.data));
+    setCenterMode('knowledge');
+    setNotice(
+      knowledgeFormState.mode === 'edit'
+        ? `Updated knowledge entry “${result.data.canonicalName}”.`
+        : `Added knowledge entry “${result.data.canonicalName}”.`,
+    );
+  };
+
   const handlePreviewAction = () => {
     if (!selectedProject) {
       setError('Select a project before generating or reviewing a preview.');
@@ -449,6 +712,30 @@ export default function App() {
     );
   };
 
+  const handleFullBuildAction = () => {
+    if (!selectedProject) {
+      setError('Select a project before running the full build.');
+      return;
+    }
+
+    setError(null);
+    setNotice(null);
+
+    const result = service.runFullBuild(selectedProject.id);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+
+    refreshProjects(selectedProject.id);
+    setCenterMode('detail');
+    setNotice(
+      result.data.bundle.validationState === 'validation-failed'
+        ? `Built guide bundle v${result.data.bundle.version}, but freeze is blocked until the new validation findings are cleared.`
+        : `Built guide bundle v${result.data.bundle.version}; it is ready for freeze review when you are.`
+    );
+  };
+
   return (
     <main className="app-shell guide-theme-surface">
       <section className="hero-card guide-panel">
@@ -456,15 +743,15 @@ export default function App() {
           <p className="eyebrow">MY PLAITHROUGH</p>
           <h1>Web workbench kept in step with the Qt desktop app.</h1>
           <p className="lead">
-            Project manifests, editorial blueprints, and reviewable preview packages are now durable in the browser,
-            while each project keeps its own shared CSS theme for the app and future guide surfaces.
+            Project manifests, structured knowledge records, editorial blueprints, reviewable preview packages, and
+            first-pass full build bundles are now durable in the browser, while each project keeps its own shared CSS theme for the app and future guide surfaces.
           </p>
         </div>
 
         <div className="hero-badge guide-panel">
           <span className="badge-label">current slice</span>
-          <strong>Blueprint · preview package · explicit approval review</strong>
-          <span>The preview step is now durable and cannot be mistaken for implicit approval.</span>
+          <strong>Approved preview gate · full build bundle · freeze review handoff</strong>
+          <span>The guide can now produce a durable, bounded build bundle without pretending it is already a frozen edition.</span>
         </div>
       </section>
 
@@ -503,8 +790,14 @@ export default function App() {
             <button className="btn-secondary" onClick={startBlueprintDraft} disabled={!selectedProject}>
               Draft Blueprint
             </button>
+            <button className="btn-secondary" onClick={() => startKnowledgeWorkbench()} disabled={!selectedProject}>
+              Knowledge Base
+            </button>
             <button className="btn-secondary" onClick={handlePreviewAction} disabled={!selectedProject || !latestBlueprint}>
               Preview / Review
+            </button>
+            <button className="btn-secondary" onClick={handleFullBuildAction} disabled={!selectedProject || !fullBuildReady}>
+              Run Full Build
             </button>
             <button className="btn-ghost" onClick={handleDeleteSelected} disabled={!selectedProject}>
               Delete
@@ -758,6 +1051,308 @@ export default function App() {
                 </button>
               </div>
             </div>
+          ) : centerMode === 'knowledge' && selectedProject && knowledgeFormState ? (
+            <div className="editor-column knowledge-editor-column">
+              <div className="panel-heading">
+                <div>
+                  <p className="section-eyebrow">Knowledge registry</p>
+                  <h2>{knowledgeFormState.mode === 'edit' ? `Edit ${knowledgeFormState.canonicalName}` : `Knowledge base for ${selectedProject.gameTitle}`}</h2>
+                </div>
+                <span className="muted-text">{knowledgeCoverageSummary(selectedKnowledgeEntities)}</span>
+              </div>
+
+              <p className="support-copy">
+                Store normalized route facts here before they become chapter prose. Visible guide facts and hidden codex notes stay separate, along with provenance and conflict signals.
+              </p>
+
+              <div className="knowledge-workbench">
+                <section className="knowledge-editor-panel guide-panel">
+                  <div className="form-grid knowledge-form-grid">
+                    <label>
+                      <span>Canonical name *</span>
+                      <input
+                        type="text"
+                        value={knowledgeFormState.canonicalName}
+                        onChange={(event) => updateKnowledgeField('canonicalName', event.target.value)}
+                        placeholder="e.g. Zozo clock clue"
+                      />
+                    </label>
+
+                    <label>
+                      <span>Category</span>
+                      <select
+                        value={knowledgeFormState.category}
+                        onChange={(event) => updateKnowledgeField('category', event.target.value as KnowledgeEntity['category'])}
+                      >
+                        <option value="route-note">Route note</option>
+                        <option value="quest">Quest</option>
+                        <option value="system">System</option>
+                        <option value="item">Item</option>
+                        <option value="location">Location</option>
+                        <option value="enemy">Enemy</option>
+                        <option value="skill">Skill</option>
+                        <option value="class">Class</option>
+                        <option value="vendor">Vendor</option>
+                        <option value="map-region">Map region</option>
+                      </select>
+                    </label>
+
+                    <label>
+                      <span>Visibility</span>
+                      <select
+                        value={knowledgeFormState.visibility}
+                        onChange={(event) => updateKnowledgeField('visibility', event.target.value as KnowledgeEntity['visibility'])}
+                      >
+                        <option value="visible-guide">Visible guide</option>
+                        <option value="hidden-codex">Hidden codex</option>
+                      </select>
+                    </label>
+
+                    <label>
+                      <span>Scope</span>
+                      <select
+                        value={knowledgeFormState.scope}
+                        onChange={(event) => updateKnowledgeField('scope', event.target.value as KnowledgeEntity['scope'])}
+                      >
+                        <option value="broad">Broad knowledge</option>
+                        <option value="run-specific">Run-specific</option>
+                      </select>
+                    </label>
+
+                    <label>
+                      <span>Confidence</span>
+                      <select
+                        value={knowledgeFormState.confidence}
+                        onChange={(event) => updateKnowledgeField('confidence', event.target.value as KnowledgeEntity['confidence'])}
+                      >
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                      </select>
+                    </label>
+
+                    <label>
+                      <span>Aliases</span>
+                      <textarea
+                        value={knowledgeFormState.aliasesText}
+                        onChange={(event) => updateKnowledgeField('aliasesText', event.target.value)}
+                        placeholder="One alias per line"
+                      />
+                    </label>
+                  </div>
+
+                  <label className="theme-editor knowledge-summary-editor">
+                    <span>Summary *</span>
+                    <textarea
+                      value={knowledgeFormState.summary}
+                      onChange={(event) => updateKnowledgeField('summary', event.target.value)}
+                      placeholder="Explain the fact in durable editorial language before it becomes guide prose."
+                    />
+                  </label>
+
+                  <div className="knowledge-meta-grid">
+                    <label className="theme-editor">
+                      <span>Structured attributes</span>
+                      <textarea
+                        value={knowledgeFormState.attributesText}
+                        onChange={(event) => updateKnowledgeField('attributesText', event.target.value)}
+                        placeholder="Key :: Value"
+                      />
+                    </label>
+
+                    <label className="theme-editor">
+                      <span>Version tags</span>
+                      <textarea
+                        value={knowledgeFormState.versionTagsText}
+                        onChange={(event) => updateKnowledgeField('versionTagsText', event.target.value)}
+                        placeholder="One tag per line"
+                      />
+                    </label>
+                  </div>
+
+                  <section className="knowledge-subpanel">
+                    <div className="panel-heading">
+                      <div>
+                        <p className="section-eyebrow">Provenance</p>
+                        <h3>Primary source note</h3>
+                      </div>
+                      <span className="muted-text">Required while provenance is enforced</span>
+                    </div>
+
+                    <div className="knowledge-form-grid">
+                      <label>
+                        <span>Source type *</span>
+                        <input
+                          type="text"
+                          value={knowledgeFormState.sourceType}
+                          onChange={(event) => updateKnowledgeField('sourceType', event.target.value)}
+                          placeholder="e.g. manual-entry"
+                        />
+                      </label>
+
+                      <label>
+                        <span>Trust classification</span>
+                        <select
+                          value={knowledgeFormState.sourceTrustClassification}
+                          onChange={(event) => updateKnowledgeField('sourceTrustClassification', event.target.value as SourceReference['trustClassification'])}
+                        >
+                          <option value="primary">Primary</option>
+                          <option value="secondary">Secondary</option>
+                          <option value="community-verified">Community verified</option>
+                          <option value="working-notes">Working notes</option>
+                          <option value="uncertain">Uncertain</option>
+                        </select>
+                      </label>
+
+                      <label>
+                        <span>Source title *</span>
+                        <input
+                          type="text"
+                          value={knowledgeFormState.sourceTitle}
+                          onChange={(event) => updateKnowledgeField('sourceTitle', event.target.value)}
+                          placeholder="e.g. SNES playthrough notes"
+                        />
+                      </label>
+
+                      <label>
+                        <span>Source URI</span>
+                        <input
+                          type="text"
+                          value={knowledgeFormState.sourceUri}
+                          onChange={(event) => updateKnowledgeField('sourceUri', event.target.value)}
+                          placeholder="Optional URL or local note pointer"
+                        />
+                      </label>
+                    </div>
+
+                    <label className="theme-editor">
+                      <span>Source excerpt *</span>
+                      <textarea
+                        value={knowledgeFormState.sourceExcerpt}
+                        onChange={(event) => updateKnowledgeField('sourceExcerpt', event.target.value)}
+                        placeholder="Record the exact clue, observation, or note that supports this fact."
+                      />
+                    </label>
+                  </section>
+
+                  <section className="knowledge-subpanel">
+                    <div className="panel-heading">
+                      <div>
+                        <p className="section-eyebrow">Conflict signal</p>
+                        <h3>Optional contradiction note</h3>
+                      </div>
+                      <span className="muted-text">Only fill this in when the fact is contested or unstable</span>
+                    </div>
+
+                    <label className="theme-editor">
+                      <span>Conflict summary</span>
+                      <textarea
+                        value={knowledgeFormState.conflictSummary}
+                        onChange={(event) => updateKnowledgeField('conflictSummary', event.target.value)}
+                        placeholder="Describe the contradiction or ambiguity that still matters."
+                      />
+                    </label>
+
+                    <div className="knowledge-form-grid">
+                      <label>
+                        <span>Conflict type</span>
+                        <input
+                          type="text"
+                          value={knowledgeFormState.conflictType}
+                          onChange={(event) => updateKnowledgeField('conflictType', event.target.value)}
+                          placeholder="e.g. timing-disagreement"
+                        />
+                      </label>
+
+                      <label>
+                        <span>Severity</span>
+                        <select
+                          value={knowledgeFormState.conflictSeverity}
+                          onChange={(event) => updateKnowledgeField('conflictSeverity', event.target.value as ConflictRecord['severity'])}
+                        >
+                          <option value="warning">Warning</option>
+                          <option value="blocking">Blocking</option>
+                        </select>
+                      </label>
+
+                      <label>
+                        <span>Resolution status</span>
+                        <select
+                          value={knowledgeFormState.conflictResolutionStatus}
+                          onChange={(event) => updateKnowledgeField('conflictResolutionStatus', event.target.value as ConflictRecord['resolutionStatus'])}
+                        >
+                          <option value="open">Open</option>
+                          <option value="monitoring">Monitoring</option>
+                          <option value="resolved">Resolved</option>
+                        </select>
+                      </label>
+                    </div>
+
+                    <label className="theme-editor">
+                      <span>Recommended handling</span>
+                      <textarea
+                        value={knowledgeFormState.recommendedHandling}
+                        onChange={(event) => updateKnowledgeField('recommendedHandling', event.target.value)}
+                        placeholder="Explain how the guide or codex should carry this uncertainty forward."
+                      />
+                    </label>
+                  </section>
+
+                  <div className="action-row">
+                    <button className="btn-primary" onClick={handleSaveKnowledge}>
+                      {knowledgeFormState.mode === 'edit' ? 'Save knowledge update' : 'Add knowledge entry'}
+                    </button>
+                    <button className="btn-secondary" onClick={() => setKnowledgeFormState(createDefaultKnowledgeFormState(selectedProject, null))}>
+                      New entry
+                    </button>
+                    <button className="btn-ghost" onClick={() => setCenterMode('detail')}>
+                      Close workbench
+                    </button>
+                  </div>
+                </section>
+
+                <aside className="knowledge-browser-panel guide-panel">
+                  <div className="panel-heading">
+                    <div>
+                      <p className="section-eyebrow">Stored entries</p>
+                      <h3>Visible vs hidden</h3>
+                    </div>
+                    <span className="muted-text">{visibleKnowledgeCount} visible · {hiddenKnowledgeCount} hidden</span>
+                  </div>
+
+                  {selectedKnowledgeEntities.length === 0 ? (
+                    <div className="empty-state subtle-empty">
+                      <h3>No knowledge entries yet</h3>
+                      <p>Add the first structured fact so the hidden codex and guide-facing truth stop living only in your head.</p>
+                    </div>
+                  ) : (
+                    <div className="knowledge-entry-list">
+                      {selectedKnowledgeEntities.map((knowledgeEntity) => (
+                        <button
+                          key={knowledgeEntity.id}
+                          type="button"
+                          className={`knowledge-entry-card ${knowledgeFormState.knowledgeId === knowledgeEntity.id ? 'selected' : ''}`}
+                          onClick={() => setKnowledgeFormState(createDefaultKnowledgeFormState(selectedProject, knowledgeEntity))}
+                        >
+                          <div className="project-list-head">
+                            <strong>{knowledgeEntity.canonicalName}</strong>
+                            <span className={`status-pill ${statusClass(knowledgeEntity.visibility)}`}>
+                              {knowledgeVisibilityLabel(knowledgeEntity.visibility)}
+                            </span>
+                          </div>
+                          <p>{knowledgeEntity.summary}</p>
+                          <div className="inline-meta">
+                            <span>{knowledgeEntity.category}</span>
+                            <span>{knowledgeEntity.confidence}</span>
+                            <span>{knowledgeEntity.sourceRefs.length} source{knowledgeEntity.sourceRefs.length === 1 ? '' : 's'}</span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </aside>
+              </div>
+            </div>
           ) : selectedProject ? (
             <div className="editor-column">
               <div className="panel-heading">
@@ -814,6 +1409,15 @@ export default function App() {
                 <dt>Blueprint versions</dt>
                 <dd>{selectedBlueprints.length}</dd>
 
+                <dt>Knowledge base</dt>
+                <dd>{knowledgeCoverageSummary(selectedKnowledgeEntities)}</dd>
+
+                <dt>Visible guide facts</dt>
+                <dd>{visibleKnowledgeCount}</dd>
+
+                <dt>Hidden codex notes</dt>
+                <dd>{hiddenKnowledgeCount}</dd>
+
                 <dt>Preview slice</dt>
                 <dd>{describePreview(latestPreview, latestBlueprint)}</dd>
 
@@ -826,6 +1430,19 @@ export default function App() {
 
                 <dt>Preview versions</dt>
                 <dd>{selectedPreviews.length}</dd>
+
+                <dt>Full build</dt>
+                <dd>{describeFullBuild(latestBuildBundle)}</dd>
+
+                <dt>Build validation</dt>
+                <dd>
+                  <span className={`status-pill ${statusClass(latestBuildBundle?.validationState ?? 'not-run')}`}>
+                    {latestBuildBundle?.validationState.toUpperCase() ?? 'NOT RUN'}
+                  </span>
+                </dd>
+
+                <dt>Build bundle versions</dt>
+                <dd>{selectedBuildBundles.length}</dd>
 
                 <dt>Storage backend</dt>
                 <dd>Browser local storage</dd>
@@ -881,6 +1498,38 @@ export default function App() {
                       <h4>Spoiler guardrails</h4>
                       <p>{latestBlueprint.spoilerGuardrails}</p>
                     </div>
+                  </div>
+                </section>
+              )}
+
+              {selectedKnowledgeEntities.length > 0 && (
+                <section className="knowledge-summary guide-panel">
+                  <div className="panel-heading">
+                    <div>
+                      <p className="section-eyebrow">Knowledge registry</p>
+                      <h3>Structured facts and hidden codex notes</h3>
+                    </div>
+                    <span className="muted-text">{knowledgeCoverageSummary(selectedKnowledgeEntities)}</span>
+                  </div>
+
+                  <div className="knowledge-card-list">
+                    {selectedKnowledgeEntities.map((knowledgeEntity) => (
+                      <article key={knowledgeEntity.id} className="knowledge-card">
+                        <div className="project-list-head">
+                          <strong>{knowledgeEntity.canonicalName}</strong>
+                          <span className={`status-pill ${statusClass(knowledgeEntity.visibility)}`}>
+                            {knowledgeVisibilityLabel(knowledgeEntity.visibility)}
+                          </span>
+                        </div>
+                        <p className="knowledge-card-summary">{knowledgeEntity.summary}</p>
+                        <div className="inline-meta">
+                          <span>{knowledgeEntity.category}</span>
+                          <span>{knowledgeEntity.scope.replace(/-/g, ' ')}</span>
+                          <span>{knowledgeEntity.confidence}</span>
+                        </div>
+                        <p className="knowledge-card-proof">{knowledgeEntitySummary(knowledgeEntity)}</p>
+                      </article>
+                    ))}
                   </div>
                 </section>
               )}
@@ -943,6 +1592,43 @@ export default function App() {
                   </div>
                 </section>
               )}
+
+              {latestBuildBundle && (
+                <section className="preview-summary guide-panel">
+                  <div className="panel-heading">
+                    <div>
+                      <p className="section-eyebrow">Latest full build bundle</p>
+                      <h3>Build bundle v{latestBuildBundle.version}</h3>
+                    </div>
+                    <span className={`status-pill ${statusClass(latestBuildBundle.validationState)}`}>
+                      {latestBuildBundle.validationState.toUpperCase()}
+                    </span>
+                  </div>
+
+                  <div className="preview-meta-row inline-meta">
+                    <span>Generated {formatDate(latestBuildBundle.generatedAt)}</span>
+                    <span>{latestBuildBundle.units.length} bounded units</span>
+                    <span>{latestBuildBundle.hiddenCodexIds.length} hidden codex note{latestBuildBundle.hiddenCodexIds.length === 1 ? '' : 's'} withheld</span>
+                  </div>
+
+                  <p className={latestBuildBundle.validationState === 'validation-failed' ? 'preview-warning-note' : 'support-copy'}>
+                    {latestBuildBundle.summary}
+                  </p>
+
+                  <div className="preview-section-list">
+                    {latestBuildBundle.units.map((unit) => (
+                      <article key={unit.id} className="preview-section-card">
+                        <div className="project-list-head">
+                          <strong>{unit.title}</strong>
+                          <span className="chip">{buildUnitKindLabel(unit)}</span>
+                        </div>
+                        <p className="preview-section-summary">{unit.purpose}</p>
+                        <p className="preview-section-body">{unit.body}</p>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              )}
             </div>
           ) : (
             <div className="empty-state detail-empty">
@@ -978,11 +1664,20 @@ export default function App() {
             <dt>Blueprint</dt>
             <dd>{summarizeBlueprint(latestBlueprint)}</dd>
 
+            <dt>Knowledge</dt>
+            <dd>{knowledgeCoverageSummary(selectedKnowledgeEntities)}</dd>
+
             <dt>Preview</dt>
             <dd>{describePreview(latestPreview, latestBlueprint)}</dd>
 
             <dt>Approval</dt>
             <dd>{previewApprovalLabel(latestPreview)}</dd>
+
+            <dt>Full build</dt>
+            <dd>{describeFullBuild(latestBuildBundle)}</dd>
+
+            <dt>Freeze gate</dt>
+            <dd>{latestBuildBundle?.validationState.toUpperCase() ?? 'NOT RUN'}</dd>
           </dl>
 
           <div className="theme-preview-card guide-panel guide-sample-surface">
